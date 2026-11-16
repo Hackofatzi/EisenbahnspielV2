@@ -24,6 +24,9 @@ Spurwechsel über Weichen wie bei Subway Surfers.
 - Logik: immer 4 Spuren
 - Solo-Modus: allein auf der Strecke, Sammelobjekte und Zeit
 - Rennmodus: Spieler + 3 KI-Züge
+- Züge fahren nie ineinander: Spurwechsel nur, wenn auf der Nachbarspur Platz ist
+  (sonst kurzer Anstoß-Ton); ein Zug hinter einem langsameren übernimmt dessen Tempo.
+  Fertige Züge blockieren nicht.
 - Hindernisse bremsen nur kurz, kein Fehlschlag
 - Wagen folgen der Lok leicht verzögert in der Spur; Hitbox nur an der Lok (Entwurf, in M1 prüfen)
 - Später optional: breiteres Gleisnetz mit 5–6 Gleisen
@@ -32,7 +35,10 @@ Spurwechsel über Weichen wie bei Subway Surfers.
 - Aus Segmenten: Gerade, Kurve links/rechts, Weiche links/rechts
 - Zwei Kurven ergeben eine engere Kurve
 - Kurven nur optisch (Kamera), Logik bleibt 4-Spur-Raster
-- Weichen: rein optisch, ohne Zwang; sichtbare Animation und Sound beim Überfahren
+- Weichen (ab M3): Spurwechsel ist nur bei/vor Weichen möglich, sonst bleibt der Zug
+  auf seiner Spur (in M1/M2 noch überall möglich). Sichtbare Animation und Sound beim
+  Überfahren. Der Generator setzt vor jeder Hindernisreihe eine Weiche, die einen Weg
+  auf eine freie Spur erlaubt (oder das Hindernis ist überhüpfbar).
 - Generator: immer mind. 1 freie Spur, keine 2 Weichen direkt hintereinander
 - Länge 60–90 s, Zieleinlauf
 

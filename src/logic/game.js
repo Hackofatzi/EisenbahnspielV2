@@ -58,16 +58,34 @@ export function jumpHeight(t) {
   return JUMP_HEIGHT * 4 * u * (1 - u);
 }
 
-function changeLane(t, dir) {
+// Zuglänge: Lok 2.4, jeder Wagen 2.22 (inkl. Kupplung); dist = Mitte der Lok
+const CAR_LEN = 2.22;
+const lengthOf = (t) => 2.4 + (t.wagons ?? 0) * CAR_LEN;
+const frontOf = (t) => t.dist + 1.2;
+const tailOf = (t) => t.dist + 1.2 - lengthOf(t);
+const allTrains = (g) => [g, ...g.rivals];
+
+/** Ist die Spur für Zug t durch einen anderen (noch fahrenden) Zug belegt? */
+export function laneTaken(g, t, lane, margin = 0.4) {
+  return allTrains(g).some(
+    (x) => x !== t && !x.finished && x.lane === lane && tailOf(x) - margin < frontOf(t) && frontOf(x) + margin > tailOf(t),
+  );
+}
+
+/** Spurwechsel nur, wenn auf der Nachbarspur Platz ist. Gibt 'ok' | 'edge' | 'blocked' zurück. */
+function changeLane(t, dir, g) {
   const next = Math.min(LANES - 1, Math.max(0, t.lane + dir));
-  if (next === t.lane) return false;
+  if (next === t.lane) return 'edge';
+  if (laneTaken(g, t, next)) return 'blocked';
   t.lane = next;
-  return true;
+  return 'ok';
 }
 
 export function moveLane(g, dir) {
   if (g.finished) return;
-  if (changeLane(g, dir)) g.events.push({ type: 'lane' });
+  const r = changeLane(g, dir, g);
+  if (r === 'ok') g.events.push({ type: 'lane' });
+  else if (r === 'blocked') g.events.push({ type: 'blocked' });
 }
 
 export function jump(g) {
@@ -90,7 +108,20 @@ function stepTrain(t, dt, g, isPlayer) {
   const accel = t.finished ? 6 : 12;
   if (t.speed < target) t.speed = Math.min(target, t.speed + accel * dt);
   else t.speed = Math.max(target, t.speed - accel * 1.5 * dt);
+  const prevDist = t.dist;
   t.dist += t.speed * dt;
+
+  // Nicht in einen Zug auf derselben Spur hineinfahren: hinter ihm bleiben, sein Tempo übernehmen
+  if (!t.finished) {
+    for (const x of allTrains(g)) {
+      if (x === t || x.finished || x.lane !== t.lane || x.dist <= t.dist) continue;
+      const maxDist = tailOf(x) - 0.3 - 1.2;
+      if (t.dist > maxDist) {
+        t.dist = Math.max(prevDist, maxDist);
+        t.speed = Math.min(t.speed, x.speed);
+      }
+    }
+  }
 
   if (!t.finished) {
     const h = jumpHeight(t);
@@ -145,14 +176,12 @@ export function stepAI(r, g, dt) {
     if (gap < r.speed * 0.42) r.jumpT = 0;
     return;
   }
-  const others = [g, ...g.rivals].filter((x) => x !== r);
-  const occupied = (lane) => others.some((x) => x.lane === lane && Math.abs(x.dist - r.dist) < 3.5);
   const dirs = g.rnd() < 0.5 ? [-1, 1] : [1, -1];
   for (const d of dirs) {
     const lane = r.lane + d;
     if (lane < 0 || lane >= LANES) continue;
-    if (blocked(lane, r.dist, r.dist + look) || occupied(lane)) continue;
-    changeLane(r, d);
+    if (blocked(lane, r.dist, r.dist + look) || laneTaken(g, r, lane, 1.5)) continue;
+    changeLane(r, d, g);
     return;
   }
   // keine freie Nachbarspur: bei blockierendem Hindernis nichts tun (kurzes Bremsen)

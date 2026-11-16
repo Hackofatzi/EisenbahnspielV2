@@ -106,7 +106,48 @@ describe('Spiel', () => {
       for (const r of g.rivals) hits += r.hits;
       obstacles += g.track.obstacles.length;
     }
-    expect(hits / obstacles).toBeLessThan(0.2);
+    // Treffer pro Rivale und Hindernis (3 Rivalen sehen jedes Hindernis)
+    expect(hits / (obstacles * 3)).toBeLessThan(0.15);
+  });
+
+  it('Spurwechsel ist blockiert, wenn dort ein Zug steht', () => {
+    const g = createGame({ seed: 1, wagons: 2, rivals: 3 });
+    g.lane = 1; // Rivalen starten auf 0, 2, 3 auf gleicher Höhe
+    moveLane(g, 1);
+    expect(g.lane).toBe(1);
+    expect(g.events.some((e) => e.type === 'blocked')).toBe(true);
+    // Rivale weit vorn: Wechsel möglich
+    g.rivals.find((r) => r.lane === 2).dist = 40;
+    g.events.length = 0;
+    moveLane(g, 1);
+    expect(g.lane).toBe(2);
+  });
+
+  it('Züge fahren nie ineinander, auch wenn der hintere schneller ist', () => {
+    const g = createGame({ seed: 2, wagons: 1, rivals: 1 });
+    g.track.obstacles = [];
+    const r = g.rivals[0];
+    r.lane = 1; // gleiche Spur wie der Spieler
+    r.dist = 8;
+    r.baseSpeed = 5; // langsam
+    for (let i = 0; i < 20 * 60; i++) {
+      step(g, 1 / 60);
+      const rear = g.dist + 1.2;
+      const frontTail = r.dist + 1.2 - (2.4 + r.wagons * 2.22);
+      if (!r.finished) expect(rear).toBeLessThanOrEqual(frontTail + 0.001);
+    }
+    expect(g.speed).toBeLessThanOrEqual(r.baseSpeed + 0.5);
+  });
+
+  it('Fertige Züge blockieren nicht', () => {
+    const g = createGame({ seed: 3, wagons: 1, rivals: 1 });
+    g.track.obstacles = [];
+    const r = g.rivals[0];
+    r.lane = 1;
+    r.dist = g.track.finishZ - 1;
+    for (let i = 0; i < 120 * 60 && !g.finished; i++) step(g, 1 / 60);
+    expect(g.finished).toBe(true);
+    expect(r.finished).toBe(true);
   });
 
   it('Sterne nach Platz im Rennen', () => {

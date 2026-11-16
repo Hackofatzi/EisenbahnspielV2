@@ -42,6 +42,7 @@ export function sfx(name) {
     case 'collect': tone('sine', 660, 1320, 0.14, 0.2); break;
     case 'lane': tone('triangle', 300, 220, 0.07, 0.12); break;
     case 'jump': tone('sine', 220, 520, 0.18, 0.15); break;
+    case 'blocked': tone('square', 120, 90, 0.1, 0.1); break;
     case 'hit': tone('square', 140, 60, 0.25, 0.18); break;
     case 'finish':
       [523, 659, 784, 1046].forEach((f, i) => tone('triangle', f, f, 0.25, 0.2, i * 0.14));

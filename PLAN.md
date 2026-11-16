@@ -23,7 +23,10 @@ Status hier pflegen: offen / erledigt.
 
 ## Entscheidungen
 - Engine: three.js bestätigt (Vite, JS mit JSDoc, Vitest für logic/).
-- Immer 4 Spuren, 3 KI-Züge, Hüpfen in v1, Weichen rein optisch.
+- Immer 4 Spuren, 3 KI-Züge, Hüpfen in v1.
+- Weichen (geändert nach M2): Spurwechsel nur bei/vor Weichen, nicht mehr überall.
+  Betrifft M3 (Generator, KI, Wisch-Eingabe, Anzeige der Wechselzonen).
+- Züge blockieren sich (M2-Nachbesserung): kein Durchfahren, Spurwechsel nur bei freiem Platz.
 - Zielgeräte: iPhones, auch 4 Jahre alt; Hosting HostEurope.
 - DESIGN.md fehlt noch; wird in M0b erstellt.
 - Struktur: logic/ (ohne three.js), render/, models/, ui/, audio/, input/, tests/.
