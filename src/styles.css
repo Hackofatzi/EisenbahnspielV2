@@ -67,6 +67,14 @@ html, body {
 .btn.round.horn { width: 80px; height: 80px; min-height: 80px; background: var(--red); }
 #race .topbar .btn, #race .horn-row { pointer-events: auto; }
 
+.switch-hint { position: fixed; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom)); transform: translateX(-50%) scale(.8);
+  width: 88px; height: 64px; border-radius: 32px; background: var(--green); color: var(--white); display: grid; place-items: center;
+  box-shadow: 0 4px 0 var(--dark); opacity: 0; transition: opacity .15s, transform .15s; pointer-events: none !important; }
+.switch-hint svg { width: 48px; height: 48px; }
+.switch-hint.soon { opacity: .55; background: var(--yellow); color: var(--dark); transform: translateX(-50%) scale(.9); }
+.switch-hint.now { opacity: 1; transform: translateX(-50%) scale(1.05); animation: pulse .5s ease-in-out infinite alternate; }
+@keyframes pulse { to { transform: translateX(-50%) scale(1.15); } }
+
 /* Ergebnis */
 #result { justify-content: center; align-items: center; background: #2d303855; pointer-events: auto; }
 .result-card { background: var(--white); border-radius: 28px; padding: 24px 20px; width: min(340px, 100%); display: flex; flex-direction: column; align-items: center; gap: 12px; box-shadow: 0 6px 0 var(--dark); }

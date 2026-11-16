@@ -7,13 +7,49 @@ describe('Strecke', () => {
   it('ist mit gleichem Seed gleich', () => {
     expect(generateTrack(7, 700)).toEqual(generateTrack(7, 700));
   });
-  it('lässt in jeder Reihe mindestens eine Spur frei', () => {
+  const rowsOf = (t) => {
+    const rows = new Map();
+    for (const o of t.obstacles) rows.set(o.z, [...(rows.get(o.z) ?? []), o]);
+    return rows;
+  };
+  it('jede Reihe lässt eine Spur frei oder besteht nur aus niedrigen Hindernissen', () => {
+    for (let seed = 1; seed < 60; seed++) {
+      for (const list of rowsOf(generateTrack(seed, 700)).values()) {
+        const lanes = new Set(list.map((o) => o.lane));
+        if (lanes.size >= LANES) expect(list.every((o) => o.type === 'low')).toBe(true);
+      }
+    }
+  });
+  it('vor jeder Reihe mit freier Spur liegt eine Weiche mit Platz zum Reagieren', () => {
     for (let seed = 1; seed < 60; seed++) {
       const t = generateTrack(seed, 700);
-      const rows = new Map();
-      for (const o of t.obstacles) rows.set(o.z, (rows.get(o.z) ?? new Set()).add(o.lane));
-      for (const lanes of rows.values()) expect(lanes.size).toBeLessThan(LANES);
+      for (const [z, list] of rowsOf(t)) {
+        if (new Set(list.map((o) => o.lane)).size >= LANES) continue;
+        const sw = t.switches.find((s) => s.end < z && z - s.end <= 20 && z - s.start >= 20);
+        expect(sw, `Seed ${seed}, Reihe bei ${z}`).toBeTruthy();
+      }
     }
+  });
+  it('Weichen überlappen nicht und folgen nicht direkt aufeinander', () => {
+    for (let seed = 1; seed < 60; seed++) {
+      const s = generateTrack(seed, 700).switches;
+      for (let i = 1; i < s.length; i++) expect(s[i].start - s[i - 1].end).toBeGreaterThanOrEqual(20);
+    }
+  });
+  it('hat Kurven; zwei gleiche hintereinander sind enger', () => {
+    let pairs = 0;
+    for (let seed = 1; seed < 40; seed++) {
+      const c = generateTrack(seed, 700).curves;
+      expect(c.length).toBeGreaterThan(0);
+      for (let i = 1; i < c.length; i++) {
+        if (c[i].start === c[i - 1].end) {
+          pairs++;
+          expect(Math.abs(c[i].curve)).toBeGreaterThan(1);
+          expect(Math.sign(c[i].curve)).toBe(Math.sign(c[i - 1].curve));
+        }
+      }
+    }
+    expect(pairs).toBeGreaterThan(0);
   });
   it('hat Sammelobjekte und Hindernisse', () => {
     const t = generateTrack(3, 700);
@@ -25,8 +61,35 @@ describe('Strecke', () => {
 describe('Spiel', () => {
   const run = (g, seconds) => { for (let i = 0; i < seconds * 60; i++) step(g, 1 / 60); };
 
+  const openSwitches = (g) => { g.track.switches = [{ start: -1, end: 1e9 }]; return g; };
+
+  it('Spurwechsel nur in Weichen-Zonen', () => {
+    const g = createGame({ seed: 4 });
+    g.track.switches = [{ start: 50, end: 64 }];
+    moveLane(g, 1);
+    expect(g.lane).toBe(1);
+    expect(g.events.some((e) => e.type === 'locked')).toBe(true);
+    while (g.dist < 52) step(g, 1 / 60);
+    moveLane(g, 1);
+    expect(g.lane).toBe(2);
+    while (g.dist < 66) step(g, 1 / 60);
+    moveLane(g, 1);
+    expect(g.lane).toBe(2);
+  });
+
+  it('merkt sich einen Wisch kurz vor der Weiche', () => {
+    const g = createGame({ seed: 4 });
+    g.track.obstacles = [];
+    g.track.switches = [{ start: 40, end: 54 }];
+    while (g.dist < 36) step(g, 1 / 60);
+    moveLane(g, 1); // 4 Einheiten vor der Weiche
+    expect(g.lane).toBe(1);
+    while (g.dist < 45) step(g, 1 / 60);
+    expect(g.lane).toBe(2);
+  });
+
   it('begrenzt Spurwechsel auf 0..3', () => {
-    const g = createGame();
+    const g = openSwitches(createGame());
     for (let i = 0; i < 10; i++) moveLane(g, -1);
     expect(g.lane).toBe(0);
     for (let i = 0; i < 10; i++) moveLane(g, 1);
@@ -112,6 +175,7 @@ describe('Spiel', () => {
 
   it('Spurwechsel ist blockiert, wenn dort ein Zug steht', () => {
     const g = createGame({ seed: 1, wagons: 2, rivals: 3 });
+    openSwitches(g);
     g.lane = 1; // Rivalen starten auf 0, 2, 3 auf gleicher Höhe
     moveLane(g, 1);
     expect(g.lane).toBe(1);
@@ -121,6 +185,36 @@ describe('Spiel', () => {
     g.events.length = 0;
     moveLane(g, 1);
     expect(g.lane).toBe(2);
+  });
+
+  it('Spurwechsel vor die Lok eines anderen ist erlaubt; der Geschnittene wird kurz langsamer', () => {
+    const g = openSwitches(createGame({ seed: 1, wagons: 3, rivals: 1 }));
+    g.track.obstacles = [];
+    const r = g.rivals[0];
+    r.lane = 2;
+    r.dist = 10;
+    g.lane = 1;
+    g.dist = 13; // Lok des Spielers deutlich vor der Rivalen-Lok (Rest-Abstand >= 2.4)
+    moveLane(g, 1);
+    expect(g.lane).toBe(2);
+    expect(r.cut).toBeGreaterThan(0);
+    // Geschnittener fährt kurz langsamer als normal
+    const before = r.baseSpeed;
+    for (let i = 0; i < 30; i++) step(g, 1 / 60);
+    expect(r.speed).toBeLessThan(before);
+  });
+
+  it('Spurwechsel neben der Lok eines anderen bleibt blockiert', () => {
+    const g = openSwitches(createGame({ seed: 1, wagons: 1, rivals: 1 }));
+    g.track.obstacles = [];
+    const r = g.rivals[0];
+    r.lane = 2;
+    r.dist = 10;
+    g.lane = 1;
+    g.dist = 11; // Loks nebeneinander
+    moveLane(g, 1);
+    expect(g.lane).toBe(1);
+    expect(r.cut).toBe(0);
   });
 
   it('Züge fahren nie ineinander, auch wenn der hintere schneller ist', () => {

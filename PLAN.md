@@ -11,7 +11,7 @@ Status hier pflegen: offen / erledigt.
 - M1 (erledigt, Test auf echtem Handy steht aus): Solo-Fahrt. 4 Spuren, Wisch, Hüpfen, Tuten (Oszillator),
   Sammelobjekte, Hindernisse, Zieleinlauf. Danach Test auf echtem Handy.
 - M2 (erledigt, Test auf echtem Handy steht aus): Gegner. 3 KI-Züge, Platzierung, Ergebnis-Screen.
-- M3 (offen): Kurven und Weichen. Segmentgenerator, optische Kurven.
+- M3 (erledigt, Test auf echtem Handy steht aus): Kurven und Weichen. Segmentgenerator, optische Kurven.
 - M3b (offen): Umgebung. Dekorationen und Tiere pro Strecken-Thema,
   Reaktion aufs Tuten, Performance-Test auf dem Handy.
 - M4 (offen): Garage. Restliche 4 Loks und 2 Wagen, Kupplung, Farben,

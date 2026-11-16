@@ -1,7 +1,12 @@
 import {
   LANES, BASE_SPEED, TRACK_SECONDS, JUMP_DUR, JUMP_HEIGHT, HIT_SLOW_TIME, HIT_SLOW_FACTOR, WAGON_SLOWDOWN,
 } from './constants.js';
-import { generateTrack, mulberry32 } from './track.js';
+import { generateTrack, mulberry32, inSwitch, switchSoon } from './track.js';
+
+const CUT_SLOW_TIME = 0.7;
+const CUT_SLOW_FACTOR = 0.6;
+const QUEUE_TIME = 1.0; // Wisch kurz vor einer Weiche wird gemerkt
+const QUEUE_LEAD = 3; // plus Tempo * 1 s
 
 function makeTrain(baseSpeed, lane) {
   return {
@@ -11,6 +16,7 @@ function makeTrain(baseSpeed, lane) {
     lane,
     jumpT: -1, // <0: nicht in der Luft, sonst Sekunden seit Absprung
     slow: 0,
+    cut: 0, // Restzeit, in der der Zug nach dem "Schneiden" langsamer ist
     time: 0,
     hits: 0,
     hitSet: new Set(), // getroffene Hindernisse (pro Zug)
@@ -37,6 +43,7 @@ export function createGame({ seed = 1, wagons = 0, rivals = 0 } = {}) {
     collected: 0,
     events: [], // { type: 'lane'|'jump'|'hit'|'collect'|'finish' }
     finishOrder: [],
+    queue: [], // gemerkte Wische vor einer Weiche
     place: 0,
     rnd,
     rivals: [],
@@ -65,27 +72,57 @@ const frontOf = (t) => t.dist + 1.2;
 const tailOf = (t) => t.dist + 1.2 - lengthOf(t);
 const allTrains = (g) => [g, ...g.rivals];
 
-/** Ist die Spur für Zug t durch einen anderen (noch fahrenden) Zug belegt? */
+/**
+ * Ist die Spur für Zug t durch einen anderen (noch fahrenden) Zug belegt?
+ * Frei ist sie, wenn die Lok von t bereits vor der Lok des anderen ist (seine Wagen blockieren
+ * das Überholen nicht, er wird dann "geschnitten") oder wenn der andere ganz vor t fährt.
+ */
 export function laneTaken(g, t, lane, margin = 0.4) {
-  return allTrains(g).some(
-    (x) => x !== t && !x.finished && x.lane === lane && tailOf(x) - margin < frontOf(t) && frontOf(x) + margin > tailOf(t),
-  );
+  const myRear = t.dist - 1.2;
+  return allTrains(g).some((x) => {
+    if (x === t || x.finished || x.lane !== lane) return false;
+    const iAmAhead = myRear >= frontOf(x) - 0.2;
+    const theyAreAhead = frontOf(t) + margin <= tailOf(x);
+    return !iAmAhead && !theyAreAhead;
+  });
 }
 
-/** Spurwechsel nur, wenn auf der Nachbarspur Platz ist. Gibt 'ok' | 'edge' | 'blocked' zurück. */
+/**
+ * Spurwechsel nur in Weichen-Zonen und nur, wenn auf der Nachbarspur Platz ist.
+ * Gibt 'ok' | 'edge' | 'locked' | 'blocked' zurück.
+ */
 function changeLane(t, dir, g) {
   const next = Math.min(LANES - 1, Math.max(0, t.lane + dir));
   if (next === t.lane) return 'edge';
+  if (!inSwitch(g.track, t.dist)) return 'locked';
   if (laneTaken(g, t, next)) return 'blocked';
   t.lane = next;
+  // Wer jetzt von meinen Wagen "geschnitten" wird, wird kurz langsamer
+  for (const x of allTrains(g)) {
+    if (x === t || x.finished || x.lane !== next || x.dist >= t.dist || frontOf(x) <= tailOf(t)) continue;
+    x.cut = CUT_SLOW_TIME;
+    if (x === g) g.events.push({ type: 'cut' });
+  }
   return 'ok';
 }
 
-export function moveLane(g, dir) {
-  if (g.finished) return;
+function applyMove(g, dir) {
   const r = changeLane(g, dir, g);
   if (r === 'ok') g.events.push({ type: 'lane' });
   else if (r === 'blocked') g.events.push({ type: 'blocked' });
+  return r;
+}
+
+/** Spieler will wechseln. Außerhalb einer Weiche wird der Wisch kurz vor einer Weiche gemerkt. */
+export function moveLane(g, dir) {
+  if (g.finished) return;
+  if (inSwitch(g.track, g.dist)) {
+    applyMove(g, dir);
+  } else if (switchSoon(g.track, g.dist, QUEUE_LEAD + g.speed * 1.0)) {
+    if (g.queue.length < 3) g.queue.push({ dir, t: QUEUE_TIME });
+  } else {
+    g.events.push({ type: 'locked' });
+  }
 }
 
 export function jump(g) {
@@ -103,8 +140,10 @@ function stepTrain(t, dt, g, isPlayer) {
     if (t.jumpT >= JUMP_DUR) t.jumpT = -1;
   }
   if (t.slow > 0) t.slow = Math.max(0, t.slow - dt);
+  if (t.cut > 0) t.cut = Math.max(0, t.cut - dt);
 
-  const target = t.finished ? 0 : t.baseSpeed * (t.slow > 0 ? HIT_SLOW_FACTOR : 1);
+  const factor = t.slow > 0 ? HIT_SLOW_FACTOR : t.cut > 0 ? CUT_SLOW_FACTOR : 1;
+  const target = t.finished ? 0 : t.baseSpeed * factor;
   const accel = t.finished ? 6 : 12;
   if (t.speed < target) t.speed = Math.min(target, t.speed + accel * dt);
   else t.speed = Math.max(target, t.speed - accel * 1.5 * dt);
@@ -156,39 +195,49 @@ function stepTrain(t, dt, g, isPlayer) {
   }
 }
 
-/** KI: weicht Hindernissen aus oder springt, mit kleinen Fehlern und Reaktionszeit. */
+/**
+ * KI: springt über niedrige Hindernisse und wechselt nur in Weichen-Zonen die Spur
+ * (dort schaut sie weiter voraus). Mit kleinen Fehlern und Reaktionszeit.
+ */
 export function stepAI(r, g, dt) {
   if (r.finished) return;
   r.ai.cd -= dt;
   if (r.ai.cd > 0) return;
   r.ai.cd = 0.12 + g.rnd() * 0.1;
-  const look = 6 + r.speed * 1.2;
-  const blocked = (lane, from, to) => g.track.obstacles.some(
-    (o) => o.lane === lane && o.z > from && o.z < to && !r.hitSet.has(o),
+  const open = (o) => !r.hitSet.has(o);
+
+  // Springen: niedriges Hindernis auf der eigenen Spur kurz voraus
+  const near = g.track.obstacles.find(
+    (o) => o.lane === r.lane && o.type === 'low' && o.z > r.dist + 0.3 && o.z < r.dist + r.speed * 0.42 && open(o),
   );
-  const ahead = g.track.obstacles.find(
-    (o) => o.lane === r.lane && o.z > r.dist + 0.3 && o.z < r.dist + look && !r.hitSet.has(o),
-  );
-  if (!ahead) return;
-  if (g.rnd() < r.ai.mistake) return;
-  const gap = ahead.z - r.dist;
-  if (ahead.type === 'low' && r.jumpT < 0) {
-    if (gap < r.speed * 0.42) r.jumpT = 0;
-    return;
-  }
-  const dirs = g.rnd() < 0.5 ? [-1, 1] : [1, -1];
-  for (const d of dirs) {
-    const lane = r.lane + d;
-    if (lane < 0 || lane >= LANES) continue;
-    if (blocked(lane, r.dist, r.dist + look) || laneTaken(g, r, lane, 1.5)) continue;
-    changeLane(r, d, g);
-    return;
-  }
-  // keine freie Nachbarspur: bei blockierendem Hindernis nichts tun (kurzes Bremsen)
+  if (near && r.jumpT < 0 && g.rnd() >= r.ai.mistake) r.jumpT = 0;
+
+  if (!inSwitch(g.track, r.dist)) return;
+  const look = 45;
+  const cost = (lane) => {
+    let c = 0;
+    for (const o of g.track.obstacles) {
+      if (o.lane !== lane || o.z <= r.dist || o.z > r.dist + look || !open(o)) continue;
+      c += o.type === 'block' ? 100 : 5;
+    }
+    return c + Math.abs(lane - r.lane) * 0.5;
+  };
+  if (cost(r.lane) < 5 || g.rnd() < r.ai.mistake) return;
+  let best = r.lane;
+  for (let l = 0; l < LANES; l++) if (cost(l) < cost(best)) best = l;
+  if (best === r.lane) return;
+  const d = Math.sign(best - r.lane);
+  if (!laneTaken(g, r, r.lane + d, 1.5)) changeLane(r, d, g);
 }
+
 
 export function step(g, dt) {
   if (g.stopped) return;
+  if (g.queue.length) {
+    for (const q of g.queue) q.t -= dt;
+    g.queue = g.queue.filter((q) => q.t > 0);
+    if (g.queue.length && inSwitch(g.track, g.dist)) applyMove(g, g.queue.shift().dir);
+  }
   stepTrain(g, dt, g, true);
   for (const r of g.rivals) {
     stepAI(r, g, dt);

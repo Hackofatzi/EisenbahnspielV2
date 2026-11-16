@@ -24,9 +24,11 @@ Spurwechsel über Weichen wie bei Subway Surfers.
 - Logik: immer 4 Spuren
 - Solo-Modus: allein auf der Strecke, Sammelobjekte und Zeit
 - Rennmodus: Spieler + 3 KI-Züge
-- Züge fahren nie ineinander: Spurwechsel nur, wenn auf der Nachbarspur Platz ist
-  (sonst kurzer Anstoß-Ton); ein Zug hinter einem langsameren übernimmt dessen Tempo.
-  Fertige Züge blockieren nicht.
+- Züge fahren nie ineinander: Spurwechsel auf eine Nachbarspur ist erlaubt, sobald die
+  eigene Lok vor der Lok des anderen Zugs ist (Wagen blockieren das Überholen nicht)
+  oder der andere ganz vor einem fährt; sonst kurzer Anstoß-Ton. Wer von den Wagen
+  "geschnitten" wird, wird kurz langsamer. Ein Zug hinter einem langsameren auf
+  derselben Spur übernimmt dessen Tempo. Fertige Züge blockieren nicht.
 - Hindernisse bremsen nur kurz, kein Fehlschlag
 - Wagen folgen der Lok leicht verzögert in der Spur; Hitbox nur an der Lok (Entwurf, in M1 prüfen)
 - Später optional: breiteres Gleisnetz mit 5–6 Gleisen

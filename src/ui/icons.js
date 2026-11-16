@@ -3,6 +3,8 @@ const wrap = (inner) =>
   `<svg viewBox="0 0 48 48" width="40" height="40" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 
 export const ICONS = {
+  // Weiche: Doppelpfeil links/rechts
+  swap: wrap('<path d="M6 24 H42"/><path d="M16 14 L6 24 L16 34"/><path d="M32 14 L42 24 L32 34"/>'),
   back: wrap('<path d="M28 10 L14 24 L28 38"/>'),
   // Abgerundetes Dreieck
   play: wrap('<path d="M15 9 L38 24 L15 39 Z" fill="currentColor"/>'),

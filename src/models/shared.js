@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyBend } from '../render/bend.js';
 
 /** Einheiten: 1 = Spurbreite. Vorderseite des Zugs zeigt nach -Z. */
 export const COUPLER_Y = 0.5;
@@ -10,7 +11,7 @@ const matCache = new Map();
 export function mat(color) {
   const key = String(color);
   if (!matCache.has(key)) {
-    matCache.set(key, new THREE.MeshLambertMaterial({ color, flatShading: false }));
+    matCache.set(key, applyBend(new THREE.MeshLambertMaterial({ color, flatShading: false })));
   }
   return matCache.get(key);
 }

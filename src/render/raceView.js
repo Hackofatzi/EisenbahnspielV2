@@ -4,14 +4,16 @@ import { COUPLER_LEN } from '../models/shared.js';
 import { WAGON_TYPES } from './stage.js';
 import { LANES } from '../logic/constants.js';
 import { jumpHeight } from '../logic/game.js';
+import { SWITCH_LEN, curveAt } from '../logic/track.js';
+import { bend, lambert as lam, applyBend } from './bend.js';
 
 export const LANE_W = 1.4;
 const laneX = (lane) => (lane - (LANES - 1) / 2) * LANE_W;
 const VIEW_AHEAD = 75;
 const VIEW_BEHIND = 6;
 const SLEEPER_STEP = 0.7;
-
-const lam = (c) => new THREE.MeshLambertMaterial({ color: c });
+const RAIL_STEP = 2;
+const BED_STEP = 4;
 
 function starGeometry() {
   const s = new THREE.Shape();
@@ -41,34 +43,100 @@ export function createRaceView() {
   scene.add(sun);
   const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 100);
 
-  // Boden, Schotter, Schienen
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), lam(0xa9d18e));
+  // Boden
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), lam(0xa9d18e));
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
+
+  // Schotterbett, Schienen und Schwellen in kurzen Stücken, damit sie sich sauber biegen lassen
   const bedW = LANES * LANE_W + 0.6;
-  const bed = new THREE.Mesh(new THREE.BoxGeometry(bedW, 0.05, 200), lam(0xc9b99a));
-  bed.position.set(0, 0.02, -60);
-  scene.add(bed);
-  const railGeo = new THREE.BoxGeometry(0.08, 0.08, 200);
-  const railMat = lam(0x9aa0ac);
-  for (let l = 0; l < LANES; l++) {
-    for (const s of [-1, 1]) {
-      const r = new THREE.Mesh(railGeo, railMat);
-      r.position.set(laneX(l) + s * 0.46, 0.09, -60);
-      scene.add(r);
-    }
-  }
-  const nSleep = Math.ceil((VIEW_AHEAD + VIEW_BEHIND) / SLEEPER_STEP) + 2;
-  const sleepers = new THREE.InstancedMesh(new THREE.BoxGeometry(1.3, 0.06, 0.18), lam(0x8b5e3c), nSleep * LANES);
+  const span = VIEW_AHEAD + VIEW_BEHIND;
   const m4 = new THREE.Matrix4();
+  const instanced = (geo, color, count) => new THREE.InstancedMesh(geo, lam(color), count);
+
+  const nBed = Math.ceil(span / BED_STEP) + 2;
+  const bed = instanced(new THREE.BoxGeometry(bedW, 0.05, BED_STEP + 0.05), 0xc9b99a, nBed);
+  for (let i = 0; i < nBed; i++) { m4.setPosition(0, 0.02, VIEW_BEHIND - i * BED_STEP); bed.setMatrixAt(i, m4); }
+  scene.add(bed);
+
+  const nRail = Math.ceil(span / RAIL_STEP) + 2;
+  const rails = instanced(new THREE.BoxGeometry(0.08, 0.08, RAIL_STEP + 0.05), 0x9aa0ac, nRail * LANES * 2);
   let k = 0;
   for (let l = 0; l < LANES; l++) {
-    for (let i = 0; i < nSleep; i++) {
-      m4.setPosition(laneX(l), 0.07, VIEW_BEHIND - i * SLEEPER_STEP);
-      sleepers.setMatrixAt(k++, m4);
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < nRail; i++) { m4.setPosition(laneX(l) + s * 0.46, 0.09, VIEW_BEHIND - i * RAIL_STEP); rails.setMatrixAt(k++, m4); }
     }
   }
+  scene.add(rails);
+
+  const nSleep = Math.ceil(span / SLEEPER_STEP) + 2;
+  const sleepers = instanced(new THREE.BoxGeometry(1.3, 0.06, 0.18), 0x8b5e3c, nSleep * LANES);
+  k = 0;
+  for (let l = 0; l < LANES; l++) {
+    for (let i = 0; i < nSleep; i++) { m4.setPosition(laneX(l), 0.07, VIEW_BEHIND - i * SLEEPER_STEP); sleepers.setMatrixAt(k++, m4); }
+  }
   scene.add(sleepers);
+
+  function scrollTrack(dist) {
+    bed.position.z = dist % BED_STEP;
+    rails.position.z = dist % RAIL_STEP;
+    sleepers.position.z = dist % SLEEPER_STEP;
+  }
+
+  // Weichen-Zonen: Überleit-Schienen, helle Bodenmarkierung, Schilder
+  const switchPool = [];
+  const crossGeo = new THREE.BoxGeometry(0.08, 0.08, 2.1);
+  const crossMat = lam(0x9aa0ac);
+  const zoneMat = applyBend(new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.45 }));
+  function makeSwitch() {
+    const g = new THREE.Group();
+    const zone = new THREE.Mesh(new THREE.BoxGeometry(bedW, 0.02, SWITCH_LEN), zoneMat);
+    zone.position.set(0, 0.055, -SWITCH_LEN / 2);
+    g.add(zone);
+    const n = Math.ceil(SWITCH_LEN / 2);
+    const cross = new THREE.InstancedMesh(crossGeo, crossMat, (LANES - 1) * 2 * 2 * n);
+    let i = 0;
+    const dummy = new THREE.Object3D();
+    for (let l = 0; l < LANES - 1; l++) {
+      for (const dir of [1, -1]) {
+        const x0 = dir === 1 ? laneX(l) : laneX(l + 1);
+        const ang = Math.atan2(-dir * LANE_W, SWITCH_LEN);
+        for (const s of [-1, 1]) {
+          for (let p = 0; p < n; p++) {
+            const f = (p + 0.5) / n;
+            dummy.position.set(x0 + dir * LANE_W * f + s * 0.46, 0.1, -SWITCH_LEN * f);
+            dummy.rotation.set(0, ang, 0);
+            dummy.updateMatrix();
+            cross.setMatrixAt(i++, dummy.matrix);
+          }
+        }
+      }
+    }
+    g.add(cross);
+    // Schilder links und rechts: gelbe Tafel mit Doppelpfeil
+    for (const sx of [-1, 1]) {
+      const x = sx * (bedW / 2 + 0.35);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.8, 8), lam(0x2d3038));
+      post.position.set(x, 0.9, 0);
+      g.add(post);
+      const board = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.7, 0.1), lam(0xffc83d));
+      board.position.set(x, 1.9, 0);
+      g.add(board);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.1, 0.12), lam(0x2d3038));
+      bar.position.set(x, 1.9, 0.01);
+      g.add(bar);
+      for (const e of [-1, 1]) {
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.24, 3), lam(0x2d3038));
+        tip.rotation.z = -e * Math.PI / 2;
+        tip.position.set(x + e * 0.33, 1.9, 0.01);
+        g.add(tip);
+      }
+    }
+    g.visible = false;
+    scene.add(g);
+    return g;
+  }
+  for (let i = 0; i < 3; i++) switchPool.push(makeSwitch());
 
   // Hindernisse und Sterne (Pool)
   const lowGeo = new THREE.BoxGeometry(1.0, 0.35, 0.3);
@@ -183,6 +251,7 @@ export function createRaceView() {
     rivals.forEach((r, i) => visuals.push(buildVisual(r.color, r.wagonTypes, g.rivals[i])));
     for (const c of confetti) c.visible = false;
     gate.position.z = -9999;
+    bend.value = 0;
   }
 
   function burstConfetti() {
@@ -241,7 +310,22 @@ export function createRaceView() {
     const curX = pv.curX;
     void hitSeen;
 
-    sleepers.position.z = g.dist % SLEEPER_STEP;
+    scrollTrack(g.dist);
+
+    // Kurven (nur optisch): Welt biegt sich sanft in die kommende Kurve
+    const targetBend = curveAt(g.track, g.dist + 22);
+    bend.value += (targetBend - bend.value) * Math.min(1, dt * 1.5);
+
+    // Weichen-Zonen im Sichtfenster
+    let si = 0;
+    for (const s of g.track.switches) {
+      if (s.end < g.dist - VIEW_BEHIND || s.start > g.dist + VIEW_AHEAD) continue;
+      if (si >= switchPool.length) break;
+      const sg = switchPool[si++];
+      sg.visible = true;
+      sg.position.z = zOf(s.start);
+    }
+    for (; si < switchPool.length; si++) switchPool[si].visible = false;
 
     // sichtbare Objekte aus dem Fenster holen
     const lo = g.dist - VIEW_BEHIND;
@@ -286,6 +370,8 @@ export function createRaceView() {
 
     for (const e of events) {
       if (e.type === 'hit') pv.wobble = 0.5;
+      if (e.type === 'cut' || e.type === 'blocked') pv.wobble = 0.3;
+      if (e.type === 'locked') pv.wobble = 0.15;
       if (e.type === 'finish') burstConfetti();
     }
     for (const c of confetti) {
@@ -313,5 +399,10 @@ export function createRaceView() {
     camera.updateProjectionMatrix();
   }
 
-  return { scene, camera, start, sync, resize };
+  /** Beim Verlassen des Rennens: Kurvenbiegung zurücksetzen (Garage/Start sind gerade). */
+  function stop() {
+    bend.value = 0;
+  }
+
+  return { scene, camera, start, sync, resize, stop };
 }

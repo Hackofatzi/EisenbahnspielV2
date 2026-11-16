@@ -42,6 +42,8 @@ export function sfx(name) {
     case 'collect': tone('sine', 660, 1320, 0.14, 0.2); break;
     case 'lane': tone('triangle', 300, 220, 0.07, 0.12); break;
     case 'jump': tone('sine', 220, 520, 0.18, 0.15); break;
+    case 'locked': tone('triangle', 200, 170, 0.06, 0.08); break;
+    case 'cut': tone('sawtooth', 260, 130, 0.2, 0.12); break;
     case 'blocked': tone('square', 120, 90, 0.1, 0.1); break;
     case 'hit': tone('square', 140, 60, 0.25, 0.18); break;
     case 'finish':
