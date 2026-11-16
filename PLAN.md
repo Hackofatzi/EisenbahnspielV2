@@ -10,7 +10,7 @@ Status hier pflegen: offen / erledigt.
   Beispiel-Screens Start und Garage. Danach Korrekturliste von mir.
 - M1 (erledigt, Test auf echtem Handy steht aus): Solo-Fahrt. 4 Spuren, Wisch, Hüpfen, Tuten (Oszillator),
   Sammelobjekte, Hindernisse, Zieleinlauf. Danach Test auf echtem Handy.
-- M2 (offen): Gegner. 3 KI-Züge, Platzierung, Ergebnis-Screen.
+- M2 (erledigt, Test auf echtem Handy steht aus): Gegner. 3 KI-Züge, Platzierung, Ergebnis-Screen.
 - M3 (offen): Kurven und Weichen. Segmentgenerator, optische Kurven.
 - M3b (offen): Umgebung. Dekorationen und Tiere pro Strecken-Thema,
   Reaktion aufs Tuten, Performance-Test auf dem Handy.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateTrack } from '../src/logic/track.js';
-import { createGame, step, moveLane, jump, starsFor } from '../src/logic/game.js';
+import { createGame, step, stepAI, moveLane, jump, starsFor } from '../src/logic/game.js';
 import { LANES } from '../src/logic/constants.js';
 
 describe('Strecke', () => {
@@ -78,6 +78,46 @@ describe('Spiel', () => {
     expect(g.stopped).toBe(true);
     expect(g.finishTime).toBeGreaterThan(60);
     expect(starsFor(g)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Rennen: 3 Rivalen, keine Sammelobjekte, Platz 1 bis 4', () => {
+    const places = new Set();
+    for (let seed = 1; seed <= 12; seed++) {
+      const g = createGame({ seed, wagons: 2, rivals: 3 });
+      expect(g.rivals).toHaveLength(3);
+      expect(g.totalItems).toBe(0);
+      g.ai = { cd: 0, mistake: 0.1 }; // Spieler wird vom Autopiloten gesteuert
+      for (let i = 0; i < 200 * 60 && !g.stopped; i++) { stepAI(g, g, 1 / 60); step(g, 1 / 60); }
+      expect(g.finished).toBe(true);
+      expect(g.place).toBeGreaterThanOrEqual(1);
+      expect(g.place).toBeLessThanOrEqual(4);
+      expect(g.rivals.some((r) => r.dist > 100)).toBe(true);
+      places.add(g.place);
+    }
+    expect(places.size).toBeGreaterThan(1); // nicht immer derselbe Platz
+  });
+
+  it('Rivalen weichen Hindernissen meistens aus', () => {
+    let hits = 0;
+    let obstacles = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      const g = createGame({ seed, wagons: 2, rivals: 3 });
+      for (let i = 0; i < 200 * 60 && !g.stopped; i++) step(g, 1 / 60);
+      for (const r of g.rivals) hits += r.hits;
+      obstacles += g.track.obstacles.length;
+    }
+    expect(hits / obstacles).toBeLessThan(0.2);
+  });
+
+  it('Sterne nach Platz im Rennen', () => {
+    const g = createGame({ rivals: 3 });
+    g.finished = true;
+    g.place = 1;
+    expect(starsFor(g)).toBe(3);
+    g.place = 2;
+    expect(starsFor(g)).toBe(2);
+    g.place = 4;
+    expect(starsFor(g)).toBe(1);
   });
 
   it('mehr Wagen sind etwas langsamer', () => {

@@ -143,43 +143,45 @@ export function createRaceView() {
     confetti.push(c);
   }
 
-  // Zug
-  let train = null;
-  let loco = null;
-  let wagonObjs = [];
-  let wagonOffsets = [];
+  // Züge (Spieler + Rivalen)
   let game = null;
-  const trail = []; // { d, x }
-  let curX = 0;
-  let wobble = 0;
-  let yaw = 0;
+  let visuals = []; // [0] = Spieler
   const active = new Map(); // Objekt -> Mesh
 
-  function start(g, { color, wagonTypes }) {
-    game = g;
-    if (train) scene.remove(train);
-    for (const m of active.values()) { m.visible = false; m.userData.free = true; }
-    active.clear();
-    trail.length = 0;
-    train = new THREE.Group();
-    loco = buildSteamLoco({ color, detail: 'low' });
-    train.add(loco);
-    wagonObjs = [];
-    wagonOffsets = [];
+  function buildVisual(color, wagonTypes, state) {
+    const group = new THREE.Group();
+    const loco = buildSteamLoco({ color, detail: 'low' });
+    group.add(loco);
+    const wagonObjs = [];
+    const wagonOffsets = [];
     let off = 1.2 + COUPLER_LEN + 1.0;
     for (const w of wagonTypes) {
       const wg = WAGON_TYPES[w].build({ color: WAGON_TYPES[w].color, detail: 'low' });
       wg.position.z = off;
-      train.add(wg);
+      group.add(wg);
       wagonObjs.push(wg);
       wagonOffsets.push(off);
       off += 2.0 + COUPLER_LEN;
     }
-    scene.add(train);
-    curX = laneX(g.lane);
+    scene.add(group);
+    return { group, loco, wagonObjs, wagonOffsets, trail: [], curX: laneX(state.lane), yaw: 0, wobble: 0, state };
+  }
+
+  /** wagonTypes: Wagen des Spielers; rivals: [{ color, wagonTypes }] in Reihenfolge von g.rivals. */
+  function start(g, { color, wagonTypes, rivals = [] }) {
+    game = g;
+    for (const v of visuals) scene.remove(v.group);
+    for (const m of active.values()) { m.visible = false; m.userData.free = true; }
+    active.clear();
+    visuals = [buildVisual(color, wagonTypes, g)];
+    if (rivals.length) {
+      // Pfeil über der eigenen Lok, damit man sie zwischen den Rivalen findet
+      const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.5, 10).rotateX(Math.PI), lam(0xffc83d));
+      arrow.position.set(0, 2.4, 0);
+      visuals[0].loco.add(arrow);
+    }
+    rivals.forEach((r, i) => visuals.push(buildVisual(r.color, r.wagonTypes, g.rivals[i])));
     for (const c of confetti) c.visible = false;
-    wobble = 0;
-    yaw = 0;
     gate.position.z = -9999;
   }
 
@@ -191,37 +193,53 @@ export function createRaceView() {
     }
   }
 
-  function sampleTrail(d) {
+  function sampleTrail(v, d) {
     // x der Lok an der Strecke d (für nachlaufende Wagen)
-    for (let i = trail.length - 1; i >= 0; i--) if (trail[i].d <= d) return trail[i].x;
-    return trail.length ? trail[0].x : curX;
+    for (let i = v.trail.length - 1; i >= 0; i--) if (v.trail[i].d <= d) return v.trail[i].x;
+    return v.trail.length ? v.trail[0].x : v.curX;
   }
 
   const zOf = (z) => -(z - game.dist);
 
+  function syncVisual(v, dt, isPlayer) {
+    const t = v.state;
+    const goal = laneX(t.lane);
+    const prevX = v.curX;
+    v.curX += (goal - v.curX) * (1 - Math.pow(0.0004, dt));
+    const vx = (v.curX - prevX) / Math.max(dt, 1e-4);
+    v.yaw += (-vx * 0.05 - v.yaw) * Math.min(1, dt * 10);
+    v.trail.push({ d: t.dist, x: v.curX });
+    if (v.trail.length > 400) v.trail.shift();
+
+    const h = jumpHeight(t);
+    v.group.position.z = -(t.dist - game.dist);
+    v.group.visible = v.group.position.z < 6 && v.group.position.z > -VIEW_AHEAD;
+    if (!v.group.visible) return;
+    v.loco.position.set(v.curX, h, 0);
+    v.loco.rotation.y = v.yaw;
+    v.wobble = Math.max(0, v.wobble - dt);
+    v.loco.rotation.z = Math.sin(v.wobble * 40) * v.wobble * 0.25;
+    v.wagonObjs.forEach((w, i) => {
+      w.position.x = sampleTrail(v, t.dist - v.wagonOffsets[i]);
+      w.position.y = i === 0 ? h * 0.6 : h * 0.3;
+    });
+    v.group.traverse((o) => { if (o.userData.animate) o.userData.animate(t.dist); });
+    void isPlayer;
+  }
+
+  let hitSeen = 0;
   function sync(dt, events) {
     if (!game) return;
     const g = game;
-    // Lok in Spur gleiten lassen
-    const goal = laneX(g.lane);
-    const prevX = curX;
-    curX += (goal - curX) * (1 - Math.pow(0.0004, dt));
-    const vx = (curX - prevX) / Math.max(dt, 1e-4);
-    yaw += (-vx * 0.05 - yaw) * Math.min(1, dt * 10);
-    trail.push({ d: g.dist, x: curX });
-    if (trail.length > 400) trail.shift();
-
-    const h = jumpHeight(g);
-    train.position.set(0, 0, 0);
-    loco.position.set(curX, h, 0);
-    loco.rotation.y = yaw;
-    wobble = Math.max(0, wobble - dt);
-    loco.rotation.z = Math.sin(wobble * 40) * wobble * 0.25;
-    wagonObjs.forEach((w, i) => {
-      w.position.x = sampleTrail(g.dist - wagonOffsets[i]);
-      w.position.y = i === 0 ? h * 0.6 : h * 0.3;
+    visuals.forEach((v, i) => {
+      // Treffer-Wackeln für Rivalen: an der Trefferzahl erkennen
+      if (i > 0 && v.state.hits > (v.lastHits ?? 0)) v.wobble = 0.5;
+      v.lastHits = v.state.hits;
+      syncVisual(v, dt, i === 0);
     });
-    train.traverse((o) => { if (o.userData.animate) o.userData.animate(g.dist); });
+    const pv = visuals[0];
+    const curX = pv.curX;
+    void hitSeen;
 
     sleepers.position.z = g.dist % SLEEPER_STEP;
 
@@ -254,8 +272,8 @@ export function createRaceView() {
         if (key === 'star') {
           m.position.y = 0.85;
           m.rotation.y = t * 2.5 + o.z;
-        } else if (o.hit) {
-          m.position.y += (0.6 - m.position.y) * 0.3; // getroffen: hüpft weg
+        } else if (g.hitSet.has(o)) {
+          m.position.y += (0.6 - m.position.y) * 0.3; // vom Spieler getroffen: hüpft weg
         }
       }
     };
@@ -267,7 +285,7 @@ export function createRaceView() {
     gate.visible = gate.position.z > -VIEW_AHEAD;
 
     for (const e of events) {
-      if (e.type === 'hit') wobble = 0.5;
+      if (e.type === 'hit') pv.wobble = 0.5;
       if (e.type === 'finish') burstConfetti();
     }
     for (const c of confetti) {
@@ -283,9 +301,9 @@ export function createRaceView() {
       if (c.position.y < 0.05 || u.t > 3) c.visible = false;
     }
 
-    // Kamera: hinter dem Zug, sanft seitlich mitgeführt, Tempo = leichter Zoom
+    // Kamera: hinter dem Spielerzug, sanft seitlich mitgeführt, Tempo = leichter Zoom
     const cx = curX * 0.55;
-    const n = wagonObjs.length;
+    const n = pv.wagonObjs.length;
     camera.position.set(cx, 4.4 + n * 0.45, 7.5 + n * 2.2 + Math.min(1, g.speed / 12) * 0.6);
     camera.lookAt(curX * 0.8, 0.3, -6);
   }

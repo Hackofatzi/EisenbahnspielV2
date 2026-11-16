@@ -1,45 +1,73 @@
 import {
   LANES, BASE_SPEED, TRACK_SECONDS, JUMP_DUR, JUMP_HEIGHT, HIT_SLOW_TIME, HIT_SLOW_FACTOR, WAGON_SLOWDOWN,
 } from './constants.js';
-import { generateTrack } from './track.js';
+import { generateTrack, mulberry32 } from './track.js';
 
-/** Reine Spiellogik im 4-Spur-Raster, ohne Darstellung. */
-export function createGame({ seed = 1, wagons = 0 } = {}) {
-  const baseSpeed = BASE_SPEED * (1 - WAGON_SLOWDOWN * wagons);
-  const track = generateTrack(seed, baseSpeed * TRACK_SECONDS);
+function makeTrain(baseSpeed, lane) {
   return {
-    track,
-    wagons,
     baseSpeed,
     dist: 0,
     speed: 0,
-    lane: 1,
+    lane,
     jumpT: -1, // <0: nicht in der Luft, sonst Sekunden seit Absprung
     slow: 0,
     time: 0,
-    collected: 0,
-    totalItems: track.items.length,
     hits: 0,
+    hitSet: new Set(), // getroffene Hindernisse (pro Zug)
     finished: false,
     finishTime: 0,
     stopped: false,
-    events: [], // { type: 'lane'|'jump'|'hit'|'collect'|'finish' }
   };
 }
 
-export function jumpHeight(g) {
-  if (g.jumpT < 0) return 0;
-  const u = g.jumpT / JUMP_DUR;
+/**
+ * Reine Spiellogik im 4-Spur-Raster, ohne Darstellung.
+ * Das Objekt selbst ist der Spielerzug; Rivalen (KI) stehen in g.rivals.
+ * rivals: Anzahl KI-Züge (0 = Solo mit Sammelobjekten).
+ */
+export function createGame({ seed = 1, wagons = 0, rivals = 0 } = {}) {
+  const baseSpeed = BASE_SPEED * (1 - WAGON_SLOWDOWN * wagons);
+  const track = generateTrack(seed, baseSpeed * TRACK_SECONDS, { items: rivals === 0 });
+  const rnd = mulberry32((seed ^ 0x9e3779b9) >>> 0);
+  const g = {
+    ...makeTrain(baseSpeed, 1),
+    track,
+    wagons,
+    totalItems: track.items.length,
+    collected: 0,
+    events: [], // { type: 'lane'|'jump'|'hit'|'collect'|'finish' }
+    finishOrder: [],
+    place: 0,
+    rnd,
+    rivals: [],
+  };
+  const startLanes = [0, 2, 3];
+  for (let i = 0; i < rivals; i++) {
+    const w = 1 + Math.floor(rnd() * 3);
+    const r = makeTrain(BASE_SPEED * (1 - WAGON_SLOWDOWN * w) * (0.97 + rnd() * 0.08), startLanes[i % 3]);
+    r.wagons = w;
+    r.ai = { cd: rnd() * 0.3, mistake: 0.06 + rnd() * 0.1 };
+    g.rivals.push(r);
+  }
+  return g;
+}
+
+export function jumpHeight(t) {
+  if (t.jumpT < 0) return 0;
+  const u = t.jumpT / JUMP_DUR;
   return JUMP_HEIGHT * 4 * u * (1 - u);
+}
+
+function changeLane(t, dir) {
+  const next = Math.min(LANES - 1, Math.max(0, t.lane + dir));
+  if (next === t.lane) return false;
+  t.lane = next;
+  return true;
 }
 
 export function moveLane(g, dir) {
   if (g.finished) return;
-  const next = Math.min(LANES - 1, Math.max(0, g.lane + dir));
-  if (next !== g.lane) {
-    g.lane = next;
-    g.events.push({ type: 'lane' });
-  }
+  if (changeLane(g, dir)) g.events.push({ type: 'lane' });
 }
 
 export function jump(g) {
@@ -48,52 +76,113 @@ export function jump(g) {
   g.events.push({ type: 'jump' });
 }
 
-export function step(g, dt) {
-  if (g.stopped) return;
-  if (!g.finished) g.time += dt;
+function stepTrain(t, dt, g, isPlayer) {
+  if (t.stopped) return;
+  if (!t.finished) t.time += dt;
 
-  if (g.jumpT >= 0) {
-    g.jumpT += dt;
-    if (g.jumpT >= JUMP_DUR) g.jumpT = -1;
+  if (t.jumpT >= 0) {
+    t.jumpT += dt;
+    if (t.jumpT >= JUMP_DUR) t.jumpT = -1;
   }
-  if (g.slow > 0) g.slow = Math.max(0, g.slow - dt);
+  if (t.slow > 0) t.slow = Math.max(0, t.slow - dt);
 
-  const target = g.finished ? 0 : g.baseSpeed * (g.slow > 0 ? HIT_SLOW_FACTOR : 1);
-  const accel = g.finished ? 6 : 12;
-  if (g.speed < target) g.speed = Math.min(target, g.speed + accel * dt);
-  else g.speed = Math.max(target, g.speed - accel * 1.5 * dt);
-  g.dist += g.speed * dt;
+  const target = t.finished ? 0 : t.baseSpeed * (t.slow > 0 ? HIT_SLOW_FACTOR : 1);
+  const accel = t.finished ? 6 : 12;
+  if (t.speed < target) t.speed = Math.min(target, t.speed + accel * dt);
+  else t.speed = Math.max(target, t.speed - accel * 1.5 * dt);
+  t.dist += t.speed * dt;
 
-  if (!g.finished) {
-    const h = jumpHeight(g);
+  if (!t.finished) {
+    const h = jumpHeight(t);
     for (const o of g.track.obstacles) {
-      if (o.hit || o.lane !== g.lane || Math.abs(o.z - g.dist) > 0.6) continue;
+      if (t.hitSet.has(o) || o.lane !== t.lane || Math.abs(o.z - t.dist) > 0.6) continue;
       if (o.type === 'low' && h > 0.45) continue; // übersprungen
-      o.hit = true;
-      g.hits++;
-      g.slow = HIT_SLOW_TIME;
-      g.events.push({ type: 'hit' });
+      t.hitSet.add(o);
+      t.hits++;
+      t.slow = HIT_SLOW_TIME;
+      if (isPlayer) g.events.push({ type: 'hit' });
     }
-    for (const it of g.track.items) {
-      if (it.got || it.lane !== g.lane || Math.abs(it.z - g.dist) > 0.7) continue;
-      it.got = true;
-      g.collected++;
-      g.events.push({ type: 'collect' });
+    if (isPlayer) {
+      for (const it of g.track.items) {
+        if (it.got || it.lane !== t.lane || Math.abs(it.z - t.dist) > 0.7) continue;
+        it.got = true;
+        g.collected++;
+        g.events.push({ type: 'collect' });
+      }
     }
-    if (g.dist >= g.track.finishZ) {
-      g.finished = true;
-      g.finishTime = g.time;
-      g.events.push({ type: 'finish' });
+    if (t.dist >= g.track.finishZ) {
+      t.finished = true;
+      t.finishTime = t.time;
+      g.finishOrder.push(t);
+      if (isPlayer) {
+        g.place = g.finishOrder.length;
+        g.events.push({ type: 'finish' });
+      }
     }
-  } else if (g.speed <= 0.05) {
-    g.speed = 0;
-    g.stopped = true;
+  } else if (t.speed <= 0.05) {
+    t.speed = 0;
+    t.stopped = true;
   }
 }
 
-/** Vorläufige Regel (offen in SPEC): 1 Stern fürs Ziel, +1 ab 50 %, +1 ab 80 % der Sterne. */
+/** KI: weicht Hindernissen aus oder springt, mit kleinen Fehlern und Reaktionszeit. */
+export function stepAI(r, g, dt) {
+  if (r.finished) return;
+  r.ai.cd -= dt;
+  if (r.ai.cd > 0) return;
+  r.ai.cd = 0.12 + g.rnd() * 0.1;
+  const look = 6 + r.speed * 1.2;
+  const blocked = (lane, from, to) => g.track.obstacles.some(
+    (o) => o.lane === lane && o.z > from && o.z < to && !r.hitSet.has(o),
+  );
+  const ahead = g.track.obstacles.find(
+    (o) => o.lane === r.lane && o.z > r.dist + 0.3 && o.z < r.dist + look && !r.hitSet.has(o),
+  );
+  if (!ahead) return;
+  if (g.rnd() < r.ai.mistake) return;
+  const gap = ahead.z - r.dist;
+  if (ahead.type === 'low' && r.jumpT < 0) {
+    if (gap < r.speed * 0.42) r.jumpT = 0;
+    return;
+  }
+  const others = [g, ...g.rivals].filter((x) => x !== r);
+  const occupied = (lane) => others.some((x) => x.lane === lane && Math.abs(x.dist - r.dist) < 3.5);
+  const dirs = g.rnd() < 0.5 ? [-1, 1] : [1, -1];
+  for (const d of dirs) {
+    const lane = r.lane + d;
+    if (lane < 0 || lane >= LANES) continue;
+    if (blocked(lane, r.dist, r.dist + look) || occupied(lane)) continue;
+    changeLane(r, d);
+    return;
+  }
+  // keine freie Nachbarspur: bei blockierendem Hindernis nichts tun (kurzes Bremsen)
+}
+
+export function step(g, dt) {
+  if (g.stopped) return;
+  stepTrain(g, dt, g, true);
+  for (const r of g.rivals) {
+    stepAI(r, g, dt);
+    stepTrain(r, dt, g, false);
+  }
+}
+
+/** Aktueller Rang des Spielers (1 = vorn). */
+export function currentPlace(g) {
+  if (g.finished) return g.place;
+  let p = 1;
+  for (const r of g.rivals) if (r.finished || r.dist > g.dist) p++;
+  return p;
+}
+
+/**
+ * Sterne (vorläufig, offen in SPEC):
+ * Rennen: Platz 1 = 3, Platz 2 = 2, Platz 3 und 4 = 1.
+ * Solo: 1 Stern fürs Ziel, +1 ab 50 %, +1 ab 80 % der Sammelobjekte.
+ */
 export function starsFor(g) {
   if (!g.finished) return 0;
+  if (g.rivals.length) return [3, 2, 1, 1][Math.min(3, g.place - 1)];
   const r = g.totalItems ? g.collected / g.totalItems : 1;
   return 1 + (r >= 0.5 ? 1 : 0) + (r >= 0.8 ? 1 : 0);
 }

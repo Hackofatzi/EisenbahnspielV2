@@ -16,14 +16,14 @@ export function mulberry32(seed) {
  * Hindernis-Reihen lassen immer mindestens eine Spur frei.
  * type: 'low' (überhüpfbar) oder 'block' (bremst nur kurz).
  */
-export function generateTrack(seed, length) {
+export function generateTrack(seed, length, { items: withItems = true } = {}) {
   const rnd = mulberry32(seed);
   const obstacles = [];
   const items = [];
   let z = 40;
   let lastFree = 1;
   while (z < length - 45) {
-    if (rnd() < 0.55) {
+    if (rnd() < (withItems ? 0.55 : 0.8)) {
       const free = rnd() < 0.5 ? lastFree : Math.floor(rnd() * LANES);
       lastFree = free;
       for (let lane = 0; lane < LANES; lane++) {
@@ -33,7 +33,7 @@ export function generateTrack(seed, length) {
     } else {
       const lane = Math.floor(rnd() * LANES);
       const n = 3 + Math.floor(rnd() * 4);
-      for (let i = 0; i < n; i++) items.push({ z: z + i * 1.8, lane, got: false });
+      if (withItems) for (let i = 0; i < n; i++) items.push({ z: z + i * 1.8, lane, got: false });
     }
     z += 10 + rnd() * 6;
   }

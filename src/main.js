@@ -3,7 +3,7 @@ import { T } from './texts.js';
 import { ICONS } from './ui/icons.js';
 import { createStage, WAGON_TYPES } from './render/stage.js';
 import { createRaceView } from './render/raceView.js';
-import { createGame, step, moveLane, jump, starsFor } from './logic/game.js';
+import { createGame, step, moveLane, jump, starsFor, currentPlace } from './logic/game.js';
 import { attachSwipe } from './input/swipe.js';
 import { unlockAudio, horn, sfx, isMuted, setMuted, loadMuted } from './audio/sound.js';
 import { load, addStars } from './storage.js';
@@ -33,14 +33,16 @@ app.innerHTML = `
       <span class="stars">${ICONS.star}<span id="starCount">0</span></span>
       <button class="btn round" id="hornBtn" aria-label="${T.horn}">${ICONS.horn}</button>
     </div>
-    <div class="bottom">
-      <div class="panel">
-        <h2>${T.wagonSlot}</h2>
+    <div class="bottom tight">
+      <div class="panel" aria-label="${T.wagonSlot}">
         <div class="row" id="slots"></div>
       </div>
-      <div class="panel">
-        <h2>${T.colorLabel}</h2>
+      <div class="panel" aria-label="${T.colorLabel}">
         <div class="row" id="swatches"></div>
+      </div>
+      <div class="seg" id="modeSeg">
+        <button class="btn" data-mode="race">${T.modeRace}</button>
+        <button class="btn" data-mode="solo">${T.modeSolo}</button>
       </div>
       <button class="btn main green" id="drive">${ICONS.play}${T.drive}</button>
     </div>
@@ -48,7 +50,8 @@ app.innerHTML = `
   <section class="screen" id="race">
     <div class="topbar">
       <button class="btn round light" id="raceBack" aria-label="${T.back}">${ICONS.back}</button>
-      <span class="stars">${ICONS.star}<span id="raceStars">0</span></span>
+      <span class="stars" id="racePlaceBox"><span id="racePlace"></span></span>
+      <span class="stars" id="raceStarsBox">${ICONS.star}<span id="raceStars">0</span></span>
       <span class="stars" id="raceTime">0.0 ${T.seconds}</span>
     </div>
     <div class="progress"><i id="progress"></i></div>
@@ -57,10 +60,10 @@ app.innerHTML = `
   </section>
   <section class="screen" id="result">
     <div class="result-card">
-      <h2>${T.resultTitle}</h2>
+      <h2 id="resTitle">${T.resultTitle}</h2>
       <div class="big-stars" id="bigStars"></div>
       <p class="result-line"><span>${T.time}</span><b id="resTime"></b></p>
-      <p class="result-line"><span>${T.stars}</span><b id="resItems"></b></p>
+      <p class="result-line" id="resItemsLine"><span>${T.stars}</span><b id="resItems"></b></p>
       <button class="btn main red" id="again">${ICONS.play}${T.again}</button>
       <button class="btn main" id="resGarage">${ICONS.garage}${T.garage}</button>
     </div>
@@ -71,6 +74,8 @@ const show = (id) => document.querySelectorAll('.screen').forEach((s) => s.class
 
 let slots = ['coal', 'passenger', null, null, null];
 let colorIdx = 0;
+let mode = 'race'; // 'race' (3 KI-Züge) oder 'solo' (Sammelobjekte)
+const RIVAL_COUNT = 3;
 const wagonList = () => slots.filter(Boolean);
 
 const stage = createStage($('stage'), {
@@ -116,7 +121,15 @@ function renderSwatches() {
   });
 }
 
+function renderMode() {
+  document.querySelectorAll('#modeSeg .btn').forEach((b) => b.classList.toggle('sel', b.dataset.mode === mode));
+}
+document.querySelectorAll('#modeSeg .btn').forEach((b) => {
+  b.onclick = () => { mode = b.dataset.mode; renderMode(); };
+});
+
 function toGarage() {
+  renderMode();
   unlockAudio();
   stage.setExternal(null);
   racing = false;
@@ -145,6 +158,7 @@ const raceCtl = {
     for (const e of events) sfx(e.type);
     raceView.sync(dt, events);
     $('raceStars').textContent = game.collected;
+    if (game.rivals.length) $('racePlace').textContent = `${T.place} ${currentPlace(game)}/${game.rivals.length + 1}`;
     $('raceTime').textContent = `${game.time.toFixed(1)} ${T.seconds}`;
     $('progress').style.width = `${Math.min(100, (game.dist / game.track.finishZ) * 100)}%`;
     if (game.stopped && !resultTimer) resultTimer = setTimeout(showResult, 900);
@@ -155,10 +169,22 @@ function startRace() {
   unlockAudio();
   clearTimeout(resultTimer);
   resultTimer = 0;
-  game = createGame({ seed: (Math.random() * 1e9) | 0, wagons: wagonList().length });
-  raceView.start(game, { color: COLORS[colorIdx], wagonTypes: wagonList() });
+  const rivals = mode === 'race' ? RIVAL_COUNT : 0;
+  game = createGame({ seed: (Math.random() * 1e9) | 0, wagons: wagonList().length, rivals });
+  const others = COLORS.filter((_, i) => i !== colorIdx);
+  const types = Object.keys(WAGON_TYPES);
+  raceView.start(game, {
+    color: COLORS[colorIdx],
+    wagonTypes: wagonList(),
+    rivals: game.rivals.map((r, i) => ({
+      color: others[i % others.length],
+      wagonTypes: Array.from({ length: r.wagons }, (_, k) => types[(i + k) % types.length]),
+    })),
+  });
   racing = true;
   $('raceStars').textContent = '0';
+  $('racePlaceBox').style.display = rivals ? '' : 'none';
+  $('raceStarsBox').style.display = rivals ? 'none' : '';
   show('race');
   stage.setExternal(raceCtl);
 }
@@ -170,6 +196,9 @@ function showResult() {
   addStars(n);
   $('bigStars').innerHTML = [1, 2, 3].map((i) => `<span class="${i <= n ? 'on' : ''}">${ICONS.star}</span>`).join('');
   $('resTime').textContent = `${game.finishTime.toFixed(1)} ${T.seconds}`;
+  const isRace = game.rivals.length > 0;
+  $('resTitle').textContent = isRace ? `${game.place}${T.placeSuffix}` : T.resultTitle;
+  $('resItemsLine').style.display = isRace ? 'none' : '';
   $('resItems').textContent = `${game.collected} / ${game.totalItems}`;
   show('result');
 }

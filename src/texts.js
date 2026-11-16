@@ -16,5 +16,9 @@ export const T = {
   resultTitle: 'Geschafft!',
   time: 'Zeit',
   again: 'Nochmal',
+  modeSolo: 'Solo',
+  modeRace: 'Rennen',
+  place: 'Platz',
+  placeSuffix: '. Platz',
   seconds: 's',
 };
