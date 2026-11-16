@@ -37,11 +37,17 @@ Spurwechsel über Weichen wie bei Subway Surfers.
 - Aus Segmenten: Gerade, Kurve links/rechts, Weiche links/rechts
 - Zwei Kurven ergeben eine engere Kurve
 - Kurven nur optisch (Kamera), Logik bleibt 4-Spur-Raster
-- Weichen (ab M3): Spurwechsel ist nur bei/vor Weichen möglich, sonst bleibt der Zug
-  auf seiner Spur (in M1/M2 noch überall möglich). Sichtbare Animation und Sound beim
-  Überfahren. Der Generator setzt vor jeder Hindernisreihe eine Weiche, die einen Weg
-  auf eine freie Spur erlaubt (oder das Hindernis ist überhüpfbar).
-- Generator: immer mind. 1 freie Spur, keine 2 Weichen direkt hintereinander
+- Weichen: Spurwechsel ist nur an Weichen möglich, sonst bleibt der Zug auf seiner Spur.
+  Jede Weiche gilt nur für ein Spurpaar (0-1, 1-2, 2-3) und erlaubt genau einen Wechsel
+  zur Nachbarspur, nie über zwei Spuren hinweg. Weichen liegen je Spurpaar an eigener
+  Stelle und überlappen nie. Ein Wisch kurz vor einer passenden Weiche wird gemerkt.
+  Sichtbare Überleit-Schienen, gelbe Markierung und Schilder; Hinweis-Pfeile im HUD.
+- Generator: vor jeder Hindernisreihe liegen nacheinander die Weichen aller drei
+  Spurpaare (außen zuerst, zur freien Spur hin), so dass man von jeder Spur Schritt für
+  Schritt zur freien Spur kommt; immer mind. 1 freie Spur (oder nur niedrige Hindernisse)
+- Spurabstände (nur optisch, auch im Rennen): Spuren gehen paarweise auseinander und
+  kommen vor Weichen wieder eng zusammen. Die Kamera folgt dem Spielerzug; andere Züge
+  dürfen aus dem Bild laufen. Schienen bleiben im Lego-Prinzip (kurze Stücke auf Raster).
 - Länge 60–90 s, Zieleinlauf
 
 ## Ebenen (erst v2)

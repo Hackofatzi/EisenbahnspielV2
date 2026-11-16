@@ -6,14 +6,15 @@ import { LANES } from '../logic/constants.js';
 import { jumpHeight } from '../logic/game.js';
 import { SWITCH_LEN, curveAt } from '../logic/track.js';
 import { bend, lambert as lam, applyBend } from './bend.js';
+import { LANE_W, laneXs, laneXAt } from './laneGeometry.js';
 
-export const LANE_W = 1.4;
-const laneX = (lane) => (lane - (LANES - 1) / 2) * LANE_W;
 const VIEW_AHEAD = 75;
 const VIEW_BEHIND = 6;
-const SLEEPER_STEP = 0.7;
+const SLEEPER_STEP = 0.8;
 const RAIL_STEP = 2;
 const BED_STEP = 4;
+const MAX_SWITCHES = 8;
+const SW_PIECES = Math.ceil(SWITCH_LEN / 2);
 
 function starGeometry() {
   const s = new THREE.Shape();
@@ -32,6 +33,18 @@ function starGeometry() {
   return g;
 }
 
+/** Schreibt eine Instanz-Matrix (Drehung um Y, Skalierung in x/z) direkt ins Array. */
+function put(mesh, idx, x, y, z, yaw, sx = 1, sz = 1) {
+  const a = mesh.instanceMatrix.array;
+  const o = idx * 16;
+  const c = Math.cos(yaw);
+  const s = Math.sin(yaw);
+  a[o] = c * sx; a[o + 1] = 0; a[o + 2] = -s * sx; a[o + 3] = 0;
+  a[o + 4] = 0; a[o + 5] = 1; a[o + 6] = 0; a[o + 7] = 0;
+  a[o + 8] = s * sz; a[o + 9] = 0; a[o + 10] = c * sz; a[o + 11] = 0;
+  a[o + 12] = x; a[o + 13] = y; a[o + 14] = z; a[o + 15] = 1;
+}
+
 /** Rennansicht: Zug bleibt bei z=0, die Welt läuft nach +Z an der Kamera vorbei. */
 export function createRaceView() {
   const scene = new THREE.Scene();
@@ -43,100 +56,144 @@ export function createRaceView() {
   scene.add(sun);
   const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 100);
 
-  // Boden
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), lam(0xa9d18e));
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
 
-  // Schotterbett, Schienen und Schwellen in kurzen Stücken, damit sie sich sauber biegen lassen
-  const bedW = LANES * LANE_W + 0.6;
+  // Jede Spur hat ihren eigenen Verlauf: Schotter, Schienen und Schwellen als kurze Stücke
+  const bedW = LANES * LANE_W + 0.6; // Breite für den Zielbogen
   const span = VIEW_AHEAD + VIEW_BEHIND;
-  const m4 = new THREE.Matrix4();
-  const instanced = (geo, color, count) => new THREE.InstancedMesh(geo, lam(color), count);
-
+  const inst = (geo, color, count) => {
+    const m = new THREE.InstancedMesh(geo, lam(color), count);
+    m.frustumCulled = false;
+    m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(m);
+    return m;
+  };
   const nBed = Math.ceil(span / BED_STEP) + 2;
-  const bed = instanced(new THREE.BoxGeometry(bedW, 0.05, BED_STEP + 0.05), 0xc9b99a, nBed);
-  for (let i = 0; i < nBed; i++) { m4.setPosition(0, 0.02, VIEW_BEHIND - i * BED_STEP); bed.setMatrixAt(i, m4); }
-  scene.add(bed);
-
   const nRail = Math.ceil(span / RAIL_STEP) + 2;
-  const rails = instanced(new THREE.BoxGeometry(0.08, 0.08, RAIL_STEP + 0.05), 0x9aa0ac, nRail * LANES * 2);
-  let k = 0;
-  for (let l = 0; l < LANES; l++) {
-    for (const s of [-1, 1]) {
-      for (let i = 0; i < nRail; i++) { m4.setPosition(laneX(l) + s * 0.46, 0.09, VIEW_BEHIND - i * RAIL_STEP); rails.setMatrixAt(k++, m4); }
-    }
-  }
-  scene.add(rails);
-
   const nSleep = Math.ceil(span / SLEEPER_STEP) + 2;
-  const sleepers = instanced(new THREE.BoxGeometry(1.3, 0.06, 0.18), 0x8b5e3c, nSleep * LANES);
-  k = 0;
-  for (let l = 0; l < LANES; l++) {
-    for (let i = 0; i < nSleep; i++) { m4.setPosition(laneX(l), 0.07, VIEW_BEHIND - i * SLEEPER_STEP); sleepers.setMatrixAt(k++, m4); }
-  }
-  scene.add(sleepers);
+  const bed = inst(new THREE.BoxGeometry(1.8, 0.05, BED_STEP + 0.15), 0xc9b99a, nBed * LANES);
+  const rails = inst(new THREE.BoxGeometry(0.08, 0.08, RAIL_STEP + 0.08), 0x9aa0ac, nRail * LANES * 2);
+  const sleepers = inst(new THREE.BoxGeometry(1.3, 0.06, 0.18), 0x8b5e3c, nSleep * LANES);
 
-  function scrollTrack(dist) {
-    bed.position.z = dist % BED_STEP;
-    rails.position.z = dist % RAIL_STEP;
-    sleepers.position.z = dist % SLEEPER_STEP;
-  }
-
-  // Weichen-Zonen: Überleit-Schienen, helle Bodenmarkierung, Schilder
-  const switchPool = [];
-  const crossGeo = new THREE.BoxGeometry(0.08, 0.08, 2.1);
-  const crossMat = lam(0x9aa0ac);
-  const zoneMat = applyBend(new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.45 }));
-  function makeSwitch() {
-    const g = new THREE.Group();
-    const zone = new THREE.Mesh(new THREE.BoxGeometry(bedW, 0.02, SWITCH_LEN), zoneMat);
-    zone.position.set(0, 0.055, -SWITCH_LEN / 2);
-    g.add(zone);
-    const n = Math.ceil(SWITCH_LEN / 2);
-    const cross = new THREE.InstancedMesh(crossGeo, crossMat, (LANES - 1) * 2 * 2 * n);
-    let i = 0;
-    const dummy = new THREE.Object3D();
-    for (let l = 0; l < LANES - 1; l++) {
-      for (const dir of [1, -1]) {
-        const x0 = dir === 1 ? laneX(l) : laneX(l + 1);
-        const ang = Math.atan2(-dir * LANE_W, SWITCH_LEN);
-        for (const s of [-1, 1]) {
-          for (let p = 0; p < n; p++) {
-            const f = (p + 0.5) / n;
-            dummy.position.set(x0 + dir * LANE_W * f + s * 0.46, 0.1, -SWITCH_LEN * f);
-            dummy.rotation.set(0, ang, 0);
-            dummy.updateMatrix();
-            cross.setMatrixAt(i++, dummy.matrix);
-          }
-        }
-      }
+  const xa = new Array(LANES);
+  const xb = new Array(LANES);
+  const xc = new Array(LANES);
+  /** Stücke der Länge `step` entlang der Strecke: für jedes Stück die Mitte aller Spuren und die Drehung. */
+  function eachPiece(track, dist, step, count, fn) {
+    const base = Math.floor(dist / step) * step - VIEW_BEHIND;
+    for (let i = 0; i < count; i++) {
+      const s = base + i * step; // Streckenstelle der Stückmitte
+      const z = -(s - dist);
+      laneXs(track, s - step / 2, xa);
+      laneXs(track, s + step / 2, xb);
+      laneXs(track, s, xc);
+      fn(i, s, z);
     }
-    g.add(cross);
-    // Schilder links und rechts: gelbe Tafel mit Doppelpfeil
-    for (const sx of [-1, 1]) {
-      const x = sx * (bedW / 2 + 0.35);
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.8, 8), lam(0x2d3038));
-      post.position.set(x, 0.9, 0);
-      g.add(post);
-      const board = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.7, 0.1), lam(0xffc83d));
-      board.position.set(x, 1.9, 0);
-      g.add(board);
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.1, 0.12), lam(0x2d3038));
-      bar.position.set(x, 1.9, 0.01);
-      g.add(bar);
-      for (const e of [-1, 1]) {
-        const tip = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.24, 3), lam(0x2d3038));
-        tip.rotation.z = -e * Math.PI / 2;
-        tip.position.set(x + e * 0.33, 1.9, 0.01);
-        g.add(tip);
-      }
+  }
+
+  // Weichen: Überleit-Schienen, helle Markierung, Schilder (je Spurpaar an eigener Stelle)
+  const cross = inst(new THREE.BoxGeometry(0.08, 0.08, 2.1), 0x9aa0ac, MAX_SWITCHES * 4 * SW_PIECES);
+  const zoneMat = applyBend(new THREE.MeshBasicMaterial({ color: 0xfff3b0, transparent: true, opacity: 0.5 }));
+  const zone = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.02, 2.1), zoneMat, MAX_SWITCHES * SW_PIECES);
+  zone.frustumCulled = false;
+  zone.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  scene.add(zone);
+  const signs = [];
+  function makeSign() {
+    const g = new THREE.Group();
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.8, 8), lam(0x2d3038));
+    post.position.y = 0.9;
+    g.add(post);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.7, 0.1), lam(0xffc83d));
+    board.position.y = 1.9;
+    g.add(board);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.1, 0.12), lam(0x2d3038));
+    bar.position.set(0, 1.9, 0.01);
+    g.add(bar);
+    for (const e of [-1, 1]) {
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.24, 3), lam(0x2d3038));
+      tip.rotation.z = -e * Math.PI / 2;
+      tip.position.set(e * 0.33, 1.9, 0.01);
+      g.add(tip);
     }
     g.visible = false;
     scene.add(g);
     return g;
   }
-  for (let i = 0; i < 3; i++) switchPool.push(makeSwitch());
+  for (let i = 0; i < MAX_SWITCHES * 2; i++) signs.push(makeSign());
+
+  function updateTrack(g) {
+    const tr = g.track;
+    const dist = g.dist;
+    eachPiece(tr, dist, BED_STEP, nBed, (i, s, z) => {
+      for (let l = 0; l < LANES; l++) {
+        put(bed, l * nBed + i, xc[l], 0.02, z, Math.atan2(-(xb[l] - xa[l]), BED_STEP));
+      }
+    });
+    eachPiece(tr, dist, RAIL_STEP, nRail, (i, s, z) => {
+      for (let l = 0; l < LANES; l++) {
+        const yaw = Math.atan2(-(xb[l] - xa[l]), RAIL_STEP);
+        const ox = Math.cos(yaw) * 0.46;
+        const oz = -Math.sin(yaw) * 0.46;
+        put(rails, (l * 2) * nRail + i, xc[l] - ox, 0.09, z - oz, yaw);
+        put(rails, (l * 2 + 1) * nRail + i, xc[l] + ox, 0.09, z + oz, yaw);
+      }
+    });
+    eachPiece(tr, dist, SLEEPER_STEP, nSleep, (i, s, z) => {
+      for (let l = 0; l < LANES; l++) {
+        put(sleepers, l * nSleep + i, xc[l], 0.07, z, Math.atan2(-(xb[l] - xa[l]), SLEEPER_STEP));
+      }
+    });
+    bed.instanceMatrix.needsUpdate = true;
+    rails.instanceMatrix.needsUpdate = true;
+    sleepers.instanceMatrix.needsUpdate = true;
+
+    // Weichen im Sichtfenster
+    let k = 0;
+    let zc = 0;
+    let si = 0;
+    const lo = dist - VIEW_BEHIND - SWITCH_LEN;
+    const hi = dist + VIEW_AHEAD;
+    for (const sw of tr.switches) {
+      if (sw.start < lo || sw.start > hi) continue;
+      if (si >= MAX_SWITCHES) break;
+      const L = SWITCH_LEN;
+      for (let p = 0; p < SW_PIECES; p++) {
+        const f = (p + 0.5) / SW_PIECES;
+        const s = sw.start + f * L;
+        const z = -(s - dist);
+        laneXs(tr, s, xc);
+        const xp = xc[sw.pair];
+        const xq = xc[sw.pair + 1];
+        // Überleiter in beide Richtungen, je zwei Schienen
+        for (const dir of [1, -1]) {
+          const x = dir === 1 ? xp + (xq - xp) * f : xq + (xp - xq) * f;
+          const slope = dir === 1 ? (xq - xp) / L : (xp - xq) / L;
+          const yaw = Math.atan2(-slope, 1);
+          const ox = Math.cos(yaw) * 0.46;
+          const oz = -Math.sin(yaw) * 0.46;
+          put(cross, k++, x - ox, 0.1, z - oz, yaw);
+          put(cross, k++, x + ox, 0.1, z + oz, yaw);
+        }
+        put(zone, zc++, (xp + xq) / 2, 0.055, z, 0, Math.abs(xq - xp) + 1.9, 1);
+      }
+      laneXs(tr, sw.start, xc);
+      const zS = -(sw.start - dist);
+      const left = signs[si * 2];
+      const right = signs[si * 2 + 1];
+      left.visible = right.visible = true;
+      left.position.set(xc[sw.pair] - 1.15, 0, zS);
+      right.position.set(xc[sw.pair + 1] + 1.15, 0, zS);
+      si++;
+    }
+    for (let i = si * 2; i < signs.length; i++) signs[i].visible = false;
+    cross.count = k;
+    zone.count = zc;
+    cross.instanceMatrix.needsUpdate = true;
+    zone.instanceMatrix.needsUpdate = true;
+  }
 
   // Hindernisse und Sterne (Pool)
   const lowGeo = new THREE.BoxGeometry(1.0, 0.35, 0.3);
@@ -232,7 +289,7 @@ export function createRaceView() {
       off += 2.0 + COUPLER_LEN;
     }
     scene.add(group);
-    return { group, loco, wagonObjs, wagonOffsets, trail: [], curX: laneX(state.lane), yaw: 0, wobble: 0, state };
+    return { group, loco, wagonObjs, wagonOffsets, trail: [], curX: laneXAt(game.track, state.lane, 0), yaw: 0, wobble: 0, state };
   }
 
   /** wagonTypes: Wagen des Spielers; rivals: [{ color, wagonTypes }] in Reihenfolge von g.rivals. */
@@ -270,9 +327,9 @@ export function createRaceView() {
 
   const zOf = (z) => -(z - game.dist);
 
-  function syncVisual(v, dt, isPlayer) {
+  function syncVisual(v, dt) {
     const t = v.state;
-    const goal = laneX(t.lane);
+    const goal = laneXAt(game.track, t.lane, t.dist);
     const prevX = v.curX;
     v.curX += (goal - v.curX) * (1 - Math.pow(0.0004, dt));
     const vx = (v.curX - prevX) / Math.max(dt, 1e-4);
@@ -293,10 +350,8 @@ export function createRaceView() {
       w.position.y = i === 0 ? h * 0.6 : h * 0.3;
     });
     v.group.traverse((o) => { if (o.userData.animate) o.userData.animate(t.dist); });
-    void isPlayer;
   }
 
-  let hitSeen = 0;
   function sync(dt, events) {
     if (!game) return;
     const g = game;
@@ -304,28 +359,16 @@ export function createRaceView() {
       // Treffer-Wackeln für Rivalen: an der Trefferzahl erkennen
       if (i > 0 && v.state.hits > (v.lastHits ?? 0)) v.wobble = 0.5;
       v.lastHits = v.state.hits;
-      syncVisual(v, dt, i === 0);
+      syncVisual(v, dt);
     });
     const pv = visuals[0];
     const curX = pv.curX;
-    void hitSeen;
 
-    scrollTrack(g.dist);
+    updateTrack(g);
 
     // Kurven (nur optisch): Welt biegt sich sanft in die kommende Kurve
     const targetBend = curveAt(g.track, g.dist + 22);
     bend.value += (targetBend - bend.value) * Math.min(1, dt * 1.5);
-
-    // Weichen-Zonen im Sichtfenster
-    let si = 0;
-    for (const s of g.track.switches) {
-      if (s.end < g.dist - VIEW_BEHIND || s.start > g.dist + VIEW_AHEAD) continue;
-      if (si >= switchPool.length) break;
-      const sg = switchPool[si++];
-      sg.visible = true;
-      sg.position.z = zOf(s.start);
-    }
-    for (; si < switchPool.length; si++) switchPool[si].visible = false;
 
     // sichtbare Objekte aus dem Fenster holen
     const lo = g.dist - VIEW_BEHIND;
@@ -351,7 +394,7 @@ export function createRaceView() {
           active.set(o, m);
           m.position.y = key === 'star' ? 0.85 : (o.type === 'low' ? 0.3 : 0);
         }
-        m.position.x = laneX(o.lane);
+        m.position.x = laneXAt(g.track, o.lane, o.z);
         m.position.z = zOf(o.z);
         if (key === 'star') {
           m.position.y = 0.85;
@@ -387,11 +430,10 @@ export function createRaceView() {
       if (c.position.y < 0.05 || u.t > 3) c.visible = false;
     }
 
-    // Kamera: hinter dem Spielerzug, sanft seitlich mitgeführt, Tempo = leichter Zoom
-    const cx = curX * 0.55;
+    // Kamera: folgt dem Spielerzug seitlich (andere Züge dürfen aus dem Bild laufen)
     const n = pv.wagonObjs.length;
-    camera.position.set(cx, 4.4 + n * 0.45, 7.5 + n * 2.2 + Math.min(1, g.speed / 12) * 0.6);
-    camera.lookAt(curX * 0.8, 0.3, -6);
+    camera.position.set(curX * 0.9, 4.4 + n * 0.45, 7.5 + n * 2.2 + Math.min(1, g.speed / 12) * 0.6);
+    camera.lookAt(curX * 0.9, 0.3, -6);
   }
 
   function resize(w, h) {

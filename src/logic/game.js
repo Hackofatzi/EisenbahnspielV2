@@ -5,8 +5,8 @@ import { generateTrack, mulberry32, inSwitch, switchSoon } from './track.js';
 
 const CUT_SLOW_TIME = 0.7;
 const CUT_SLOW_FACTOR = 0.6;
-const QUEUE_TIME = 1.0; // Wisch kurz vor einer Weiche wird gemerkt
-const QUEUE_LEAD = 3; // plus Tempo * 1 s
+const QUEUE_TIME = 2.0; // Wisch kurz vor einer Weiche wird gemerkt
+const QUEUE_LEAD = 3; // plus Tempo * 1.5 s
 
 function makeTrain(baseSpeed, lane) {
   return {
@@ -94,7 +94,7 @@ export function laneTaken(g, t, lane, margin = 0.4) {
 function changeLane(t, dir, g) {
   const next = Math.min(LANES - 1, Math.max(0, t.lane + dir));
   if (next === t.lane) return 'edge';
-  if (!inSwitch(g.track, t.dist)) return 'locked';
+  if (!inSwitch(g.track, t.dist, Math.min(t.lane, next))) return 'locked';
   if (laneTaken(g, t, next)) return 'blocked';
   t.lane = next;
   // Wer jetzt von meinen Wagen "geschnitten" wird, wird kurz langsamer
@@ -113,13 +113,20 @@ function applyMove(g, dir) {
   return r;
 }
 
-/** Spieler will wechseln. Außerhalb einer Weiche wird der Wisch kurz vor einer Weiche gemerkt. */
+/**
+ * Spieler will wechseln. Pro Weiche (Spurpaar) ist genau ein Wechsel zur Nachbarspur möglich.
+ * Ein Wisch kurz vor einer passenden Weiche wird gemerkt und dort ausgeführt.
+ */
 export function moveLane(g, dir) {
   if (g.finished) return;
-  if (inSwitch(g.track, g.dist)) {
+  const planned = g.queue.reduce((l, q) => l + q.dir, g.lane);
+  const next = planned + dir;
+  if (next < 0 || next >= LANES) return;
+  const pair = Math.min(planned, next);
+  if (!g.queue.length && inSwitch(g.track, g.dist, pair)) {
     applyMove(g, dir);
-  } else if (switchSoon(g.track, g.dist, QUEUE_LEAD + g.speed * 1.0)) {
-    if (g.queue.length < 3) g.queue.push({ dir, t: QUEUE_TIME });
+  } else if (g.queue.length < 3 && (switchSoon(g.track, g.dist, QUEUE_LEAD + g.speed * 1.5, pair) || (g.queue.length && inSwitch(g.track, g.dist, pair)))) {
+    g.queue.push({ dir, t: QUEUE_TIME });
   } else {
     g.events.push({ type: 'locked' });
   }
@@ -212,8 +219,7 @@ export function stepAI(r, g, dt) {
   );
   if (near && r.jumpT < 0 && g.rnd() >= r.ai.mistake) r.jumpT = 0;
 
-  if (!inSwitch(g.track, r.dist)) return;
-  const look = 45;
+  const look = 70;
   const cost = (lane) => {
     let c = 0;
     for (const o of g.track.obstacles) {
@@ -227,6 +233,8 @@ export function stepAI(r, g, dt) {
   for (let l = 0; l < LANES; l++) if (cost(l) < cost(best)) best = l;
   if (best === r.lane) return;
   const d = Math.sign(best - r.lane);
+  // nur ein Schritt, nur wenn die Weiche dieses Spurpaars gerade offen ist
+  if (!inSwitch(g.track, r.dist, Math.min(r.lane, r.lane + d))) return;
   if (!laneTaken(g, r, r.lane + d, 1.5)) changeLane(r, d, g);
 }
 
@@ -236,7 +244,8 @@ export function step(g, dt) {
   if (g.queue.length) {
     for (const q of g.queue) q.t -= dt;
     g.queue = g.queue.filter((q) => q.t > 0);
-    if (g.queue.length && inSwitch(g.track, g.dist)) applyMove(g, g.queue.shift().dir);
+    const head = g.queue[0];
+    if (head && inSwitch(g.track, g.dist, Math.min(g.lane, g.lane + head.dir))) applyMove(g, g.queue.shift().dir);
   }
   stepTrain(g, dt, g, true);
   for (const r of g.rivals) {

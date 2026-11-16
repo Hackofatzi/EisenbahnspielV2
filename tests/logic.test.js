@@ -20,21 +20,45 @@ describe('Strecke', () => {
       }
     }
   });
-  it('vor jeder Reihe mit freier Spur liegt eine Weiche mit Platz zum Reagieren', () => {
+  it('von jeder Spur kommt man Schritt für Schritt über Weichen zur freien Spur', () => {
     for (let seed = 1; seed < 60; seed++) {
       const t = generateTrack(seed, 700);
-      for (const [z, list] of rowsOf(t)) {
-        if (new Set(list.map((o) => o.lane)).size >= LANES) continue;
-        const sw = t.switches.find((s) => s.end < z && z - s.end <= 20 && z - s.start >= 20);
-        expect(sw, `Seed ${seed}, Reihe bei ${z}`).toBeTruthy();
+      expect(t.rows.length).toBeGreaterThan(0);
+      for (const { z, free } of t.rows) {
+        expect(t.obstacles.some((o) => o.z === z && o.lane === free)).toBe(false);
+        // die letzten drei Weichen vor der Reihe gehören zu dieser Reihe
+        const chain = t.switches.filter((s) => s.end < z).sort((a, b) => a.start - b.start).slice(-3);
+        expect(chain).toHaveLength(3);
+        for (let start = 0; start < LANES; start++) {
+          let lane = start;
+          for (const s of chain) {
+            if (lane === free) break;
+            const toward = Math.sign(free - lane);
+            if (s.pair === Math.min(lane, lane + toward)) lane += toward;
+          }
+          expect(lane, `Seed ${seed}, Start ${start}, Reihe ${z}`).toBe(free);
+        }
       }
     }
   });
-  it('Weichen überlappen nicht und folgen nicht direkt aufeinander', () => {
+  it('Weichen überlappen nie (kein Wechsel über zwei Spuren in einem Zug)', () => {
     for (let seed = 1; seed < 60; seed++) {
       const s = generateTrack(seed, 700).switches;
-      for (let i = 1; i < s.length; i++) expect(s[i].start - s[i - 1].end).toBeGreaterThanOrEqual(20);
+      for (let i = 1; i < s.length; i++) expect(s[i].start).toBeGreaterThanOrEqual(s[i - 1].end + 3);
     }
+  });
+  it('Spurabstände weichen nur außerhalb der Weichen des eigenen Paars auf', () => {
+    let n = 0;
+    for (let seed = 1; seed < 40; seed++) {
+      const t = generateTrack(seed, 700);
+      for (const g of t.gaps) {
+        n++;
+        for (const s of t.switches.filter((x) => x.pair === g.pair)) {
+          expect(s.end < g.start || s.start > g.end).toBe(true);
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(0);
   });
   it('hat Kurven; zwei gleiche hintereinander sind enger', () => {
     let pairs = 0;
@@ -61,11 +85,11 @@ describe('Strecke', () => {
 describe('Spiel', () => {
   const run = (g, seconds) => { for (let i = 0; i < seconds * 60; i++) step(g, 1 / 60); };
 
-  const openSwitches = (g) => { g.track.switches = [{ start: -1, end: 1e9 }]; return g; };
+  const openSwitches = (g) => { g.track.switches = [0, 1, 2].map((pair) => ({ start: -1, end: 1e9, pair })); return g; };
 
   it('Spurwechsel nur in Weichen-Zonen', () => {
     const g = createGame({ seed: 4 });
-    g.track.switches = [{ start: 50, end: 64 }];
+    g.track.switches = [{ start: 50, end: 64, pair: 1 }];
     moveLane(g, 1);
     expect(g.lane).toBe(1);
     expect(g.events.some((e) => e.type === 'locked')).toBe(true);
@@ -80,7 +104,7 @@ describe('Spiel', () => {
   it('merkt sich einen Wisch kurz vor der Weiche', () => {
     const g = createGame({ seed: 4 });
     g.track.obstacles = [];
-    g.track.switches = [{ start: 40, end: 54 }];
+    g.track.switches = [{ start: 40, end: 54, pair: 1 }];
     while (g.dist < 36) step(g, 1 / 60);
     moveLane(g, 1); // 4 Einheiten vor der Weiche
     expect(g.lane).toBe(1);

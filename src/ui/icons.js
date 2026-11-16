@@ -5,6 +5,7 @@ const wrap = (inner) =>
 export const ICONS = {
   // Weiche: Doppelpfeil links/rechts
   swap: wrap('<path d="M6 24 H42"/><path d="M16 14 L6 24 L16 34"/><path d="M32 14 L42 24 L32 34"/>'),
+  next: wrap('<path d="M18 10 L32 24 L18 38"/>'),
   back: wrap('<path d="M28 10 L14 24 L28 38"/>'),
   // Abgerundetes Dreieck
   play: wrap('<path d="M15 9 L38 24 L15 39 Z" fill="currentColor"/>'),

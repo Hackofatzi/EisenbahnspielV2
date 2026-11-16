@@ -67,13 +67,16 @@ html, body {
 .btn.round.horn { width: 80px; height: 80px; min-height: 80px; background: var(--red); }
 #race .topbar .btn, #race .horn-row { pointer-events: auto; }
 
-.switch-hint { position: fixed; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom)); transform: translateX(-50%) scale(.8);
-  width: 88px; height: 64px; border-radius: 32px; background: var(--green); color: var(--white); display: grid; place-items: center;
-  box-shadow: 0 4px 0 var(--dark); opacity: 0; transition: opacity .15s, transform .15s; pointer-events: none !important; }
-.switch-hint svg { width: 48px; height: 48px; }
-.switch-hint.soon { opacity: .55; background: var(--yellow); color: var(--dark); transform: translateX(-50%) scale(.9); }
-.switch-hint.now { opacity: 1; transform: translateX(-50%) scale(1.05); animation: pulse .5s ease-in-out infinite alternate; }
-@keyframes pulse { to { transform: translateX(-50%) scale(1.15); } }
+/* Weichen-Hinweis: Pfeil links/rechts, gelb = gleich, grün = jetzt wechseln */
+.switch-hint { position: fixed; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  display: flex; gap: 12px; pointer-events: none !important; }
+.switch-hint span { width: 64px; height: 64px; border-radius: 32px; display: grid; place-items: center; opacity: 0;
+  background: var(--green); color: var(--white); box-shadow: 0 4px 0 var(--dark); transform: scale(.8); transition: opacity .15s, transform .15s; }
+.switch-hint svg { width: 44px; height: 44px; }
+.switch-hint span.soon { opacity: .6; background: var(--yellow); color: var(--dark); transform: scale(.9); }
+.switch-hint span.now { opacity: 1; transform: scale(1.05); animation: pulse .5s ease-in-out infinite alternate; }
+@keyframes pulse { to { transform: scale(1.18); } }
+
 
 /* Ergebnis */
 #result { justify-content: center; align-items: center; background: #2d303855; pointer-events: auto; }

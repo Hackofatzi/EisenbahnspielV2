@@ -4,7 +4,7 @@ import { ICONS } from './ui/icons.js';
 import { createStage, WAGON_TYPES } from './render/stage.js';
 import { createRaceView } from './render/raceView.js';
 import { createGame, step, moveLane, jump, starsFor, currentPlace } from './logic/game.js';
-import { inSwitch, switchSoon } from './logic/track.js';
+import { openDirs, soonDirs } from './logic/track.js';
 import { attachSwipe } from './input/swipe.js';
 import { unlockAudio, horn, sfx, isMuted, setMuted, loadMuted } from './audio/sound.js';
 import { load, addStars } from './storage.js';
@@ -57,7 +57,9 @@ app.innerHTML = `
     </div>
     <div class="progress"><i id="progress"></i></div>
     <div class="race-spacer"></div>
-    <div class="switch-hint" id="switchHint" aria-hidden="true">${ICONS.swap}</div>
+    <div class="switch-hint" aria-hidden="true">
+      <span id="hintL">${ICONS.back}</span><span id="hintR">${ICONS.next}</span>
+    </div>
     <div class="horn-row"><button class="btn round horn" id="raceHorn" aria-label="${T.horn}">${ICONS.horn}</button></div>
   </section>
   <section class="screen" id="result">
@@ -163,9 +165,10 @@ const raceCtl = {
     $('raceStars').textContent = game.collected;
     if (game.rivals.length) $('racePlace').textContent = `${T.place} ${currentPlace(game)}/${game.rivals.length + 1}`;
     $('raceTime').textContent = `${game.time.toFixed(1)} ${T.seconds}`;
-    const zone = inSwitch(game.track, game.dist);
-    const soon = !zone && switchSoon(game.track, game.dist, 25);
-    $('switchHint').className = `switch-hint${zone ? ' now' : soon ? ' soon' : ''}`;
+    const now = openDirs(game.track, game.dist, game.lane);
+    const soon = soonDirs(game.track, game.dist, game.lane, 25);
+    $('hintL').className = now.left ? 'now' : soon.left ? 'soon' : '';
+    $('hintR').className = now.right ? 'now' : soon.right ? 'soon' : '';
     $('progress').style.width = `${Math.min(100, (game.dist / game.track.finishZ) * 100)}%`;
     if (game.stopped && !resultTimer) resultTimer = setTimeout(showResult, 900);
   },
