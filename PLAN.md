@@ -3,7 +3,7 @@
 Jeder Meilenstein endet mit Browser-Test und Git-Commit.
 Status hier pflegen: offen / erledigt.
 
-- M0 (offen): Zug-Look. Designsprache, Dampflok, Kohlewagen, Personenwagen,
+- M0 (erledigt, wartet auf Korrekturliste): Zug-Look. Designsprache, Dampflok, Kohlewagen, Personenwagen,
   /gallery.html mit Polygonzähler. Danach Korrekturliste von mir.
 - M0b (offen): Design. DESIGN.md umsetzen: Schrift, Farben, 5 Kern-Icons
   (Play, Garage, Stern, Tuten, Sound) als SVG, Splash-Animation,
