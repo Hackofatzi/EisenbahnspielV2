@@ -66,24 +66,66 @@ export function buildSteamLoco({ color = 0xd8362f, accentColor = 0xffc83d, scale
   wedge.computeVertexNormals();
   g.add(part(wedge, accentColor, 0, 0.32, -L / 2 - 0.0));
 
-  // Räder: 2 große hinten, 2 kleine vorne (pro Seite)
+  // Räder: 2 große hinten (Treibräder), 2 kleine vorne (pro Seite)
+  const BIG_R = 0.38, SMALL_R = 0.24, PIN_R = 0.2;
+  const BIG_Y = 0.38, BIG_Z = [0.55, 0.0];
+  const rodColor = 0xb8bcc6;
+  const wheels = []; // { obj, r }
+  const sides = [];
   for (const sx of [-1, 1]) {
-    const big1 = wheel(0.38, 0.1, dark, accentColor, detail);
-    big1.position.set(sx * 0.46, 0.38, 0.55);
-    g.add(big1);
-    const big2 = wheel(0.38, 0.1, dark, accentColor, detail);
-    big2.position.set(sx * 0.46, 0.38, 0.0);
-    g.add(big2);
-    const sm1 = wheel(0.24, 0.1, dark, accentColor, detail);
-    sm1.position.set(sx * 0.46, 0.24, -0.6);
-    g.add(sm1);
-    const sm2 = wheel(0.24, 0.1, dark, accentColor, detail);
-    sm2.position.set(sx * 0.46, 0.24, -1.0);
-    g.add(sm2);
+    const bigs = BIG_Z.map((z) => {
+      const w = wheel(BIG_R, 0.1, dark, accentColor, detail);
+      w.position.set(sx * 0.46, BIG_Y, z);
+      // Kurbelzapfen (außen an der Nabe)
+      w.add(part(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 8).rotateZ(Math.PI / 2), rodColor, sx * 0.09, PIN_R, 0));
+      g.add(w);
+      wheels.push({ obj: w, r: BIG_R });
+      return w;
+    });
+    for (const z of [-0.6, -1.0]) {
+      const w = wheel(SMALL_R, 0.1, dark, accentColor, detail);
+      w.position.set(sx * 0.46, SMALL_R, z);
+      g.add(w);
+      wheels.push({ obj: w, r: SMALL_R });
+    }
+    // Kuppelstange (verbindet die Treibräder), Treibstange, Kreuzkopf, Kolbenstange
+    const px = sx * 0.58;
+    const coupling = part(new THREE.BoxGeometry(0.04, 0.07, 0.55 + 0.12), rodColor, px, 0, 0);
+    const conrod = part(new THREE.BoxGeometry(0.04, 0.07, 1), rodColor, px + sx * 0.03, 0, 0);
+    const cross = part(new THREE.BoxGeometry(0.06, 0.1, 0.12), accentColor, px, 0.46, -0.7);
+    const pistonRod = part(new THREE.CylinderGeometry(0.025, 0.025, 1, 6).rotateX(Math.PI / 2), rodColor, px, 0.46, -1);
+    const cyl = part(new THREE.CylinderGeometry(0.08, 0.08, 0.26, segs(detail, 8, 14)).rotateX(Math.PI / 2), dark, px, 0.46, -1.2);
+    g.add(coupling, conrod, cross, pistonRod, cyl);
+    sides.push({ coupling, conrod, cross, pistonRod, bigs });
   }
 
   g.add(coupler(L / 2, 1));
   g.scale.setScalar(scale);
-  g.userData = { length: L, kind: 'loco' };
+
+  const CROSS_Y = 0.46, CONROD_LEN = 0.78;
+  /** Dreht die Räder und bewegt die Stangen. dist = zurückgelegte Strecke (Spureinheiten). */
+  function animate(dist) {
+    for (const { obj, r } of wheels) obj.rotation.x = -dist / r;
+    const a = -dist / BIG_R; // Treibradwinkel
+    const py = BIG_Y + PIN_R * Math.cos(a);
+    const dz = PIN_R * Math.sin(a);
+    for (const s of sides) {
+      // Kuppelstange: beide Zapfen haben gleiche Phase, Stange bleibt waagerecht
+      s.coupling.position.set(s.coupling.position.x, py, (BIG_Z[0] + BIG_Z[1]) / 2 + dz);
+      const pz = BIG_Z[1] + dz;
+      const ex = Math.sqrt(CONROD_LEN * CONROD_LEN - (py - CROSS_Y) * (py - CROSS_Y));
+      const cz = pz - ex; // Kreuzkopf vor dem Zapfen
+      s.cross.position.z = cz;
+      s.conrod.scale.z = CONROD_LEN;
+      s.conrod.position.set(s.conrod.position.x, (py + CROSS_Y) / 2, (pz + cz) / 2);
+      s.conrod.rotation.x = Math.atan2(-(py - CROSS_Y), pz - cz);
+      const pLen = Math.max(0.05, cz - (-1.2 + 0.0));
+      s.pistonRod.scale.z = pLen;
+      s.pistonRod.position.z = -1.2 + pLen / 2;
+    }
+  }
+  animate(0);
+
+  g.userData = { length: L, kind: 'loco', animate };
   return g;
 }

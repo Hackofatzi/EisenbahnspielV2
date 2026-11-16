@@ -55,7 +55,7 @@ function rebuild() {
   document.getElementById('info').textContent = `${name}, ${detail}: ${tri} Dreiecke${lim}`;
   const narrow = innerWidth < innerHeight ? 1.6 : 1;
   dist = (name === 'Zug' ? 9 : 5) * narrow;
-  document.querySelectorAll('#ui button').forEach((b) => b.classList.toggle('on', b.dataset.k === name || b.dataset.k === detail));
+  document.querySelectorAll('#ui button').forEach((b) => b.dataset.k !== 'roll' && b.classList.toggle('on', b.dataset.k === name || b.dataset.k === detail));
 }
 
 const ui = document.getElementById('ui');
@@ -103,7 +103,18 @@ addEventListener('resize', resize);
 resize();
 rebuild();
 
+let dist0 = 0;
+let rolling = true;
+const rollBtn = document.createElement('button');
+rollBtn.textContent = 'Fahren';
+rollBtn.className = 'on';
+rollBtn.dataset.k = 'roll';
+rollBtn.onclick = () => { rolling = !rolling; rollBtn.classList.toggle('on', rolling); };
+ui.appendChild(rollBtn);
+
 renderer.setAnimationLoop(() => {
+  if (rolling) dist0 += 0.03;
+  current.traverse((o) => { if (o.userData.animate) o.userData.animate(dist0); });
   if (!pts.size) yaw += 0.004;
   camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist + 0.8, Math.cos(yaw) * Math.cos(pitch) * dist);
   camera.lookAt(0, 0.7, 0);

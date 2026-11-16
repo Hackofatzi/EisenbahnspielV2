@@ -29,14 +29,17 @@ export function buildPassengerWagon({ color = 0x2fa84f, accentColor = 0xffc83d, 
   roof.rotateZ(Math.PI / 2);
   g.add(part(roof, accentColor, 0, 1.34, 0));
 
+  const wheels = [];
   for (const sx of [-1, 1]) for (const z of [-0.6, 0.6]) {
     const w = wheel(0.26, 0.1, dark, accentColor, detail);
     w.position.set(sx * 0.46, 0.26, z);
     g.add(w);
+    wheels.push(w);
   }
   g.add(coupler(-L / 2, -1));
   g.add(coupler(L / 2, 1));
   g.scale.setScalar(scale);
-  g.userData = { length: L, kind: 'wagon' };
+  const animate = (dist) => { for (const w of wheels) w.rotation.x = -dist / 0.26; };
+  g.userData = { length: L, kind: 'wagon', animate };
   return g;
 }

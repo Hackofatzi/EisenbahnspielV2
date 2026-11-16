@@ -26,14 +26,17 @@ export function buildCoalWagon({ color = 0x3b82c4, accentColor = 0xffc83d, scale
   const use = detail === 'high' ? spots : spots.filter((_, i) => i % 2 === 0);
   for (const [x, dy, z] of use) g.add(part(sph, 0x22252b, x, 1.02 + dy, z));
 
+  const wheels = [];
   for (const sx of [-1, 1]) for (const z of [-0.6, 0.6]) {
     const w = wheel(0.26, 0.1, dark, accentColor, detail);
     w.position.set(sx * 0.46, 0.26, z);
     g.add(w);
+    wheels.push(w);
   }
   g.add(coupler(-L / 2, -1));
   g.add(coupler(L / 2, 1));
   g.scale.setScalar(scale);
-  g.userData = { length: L, kind: 'wagon' };
+  const animate = (dist) => { for (const w of wheels) w.rotation.x = -dist / 0.26; };
+  g.userData = { length: L, kind: 'wagon', animate };
   return g;
 }
