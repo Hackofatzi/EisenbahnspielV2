@@ -2,13 +2,16 @@ import './styles.css';
 import { T } from './texts.js';
 import { ICONS } from './ui/icons.js';
 import { createStage, WAGON_TYPES } from './render/stage.js';
-import { unlockAudio, horn, isMuted, setMuted, loadMuted } from './audio/sound.js';
+import { createRaceView } from './render/raceView.js';
+import { createGame, step, moveLane, jump, starsFor } from './logic/game.js';
+import { attachSwipe } from './input/swipe.js';
+import { unlockAudio, horn, sfx, isMuted, setMuted, loadMuted } from './audio/sound.js';
+import { load, addStars } from './storage.js';
 
 loadMuted();
 
 const COLORS = [0xd8362f, 0x3b82c4, 0x2fa84f, 0xffc83d, 0x8e5cc4];
 const hex = (n) => '#' + n.toString(16).padStart(6, '0');
-const MAX_WAGONS = 5;
 const WAGON_ORDER = [null, 'coal', 'passenger'];
 
 const app = document.getElementById('app');
@@ -41,6 +44,26 @@ app.innerHTML = `
       </div>
       <button class="btn main green" id="drive">${ICONS.play}${T.drive}</button>
     </div>
+  </section>
+  <section class="screen" id="race">
+    <div class="topbar">
+      <button class="btn round light" id="raceBack" aria-label="${T.back}">${ICONS.back}</button>
+      <span class="stars">${ICONS.star}<span id="raceStars">0</span></span>
+      <span class="stars" id="raceTime">0.0 ${T.seconds}</span>
+    </div>
+    <div class="progress"><i id="progress"></i></div>
+    <div class="race-spacer"></div>
+    <div class="horn-row"><button class="btn round horn" id="raceHorn" aria-label="${T.horn}">${ICONS.horn}</button></div>
+  </section>
+  <section class="screen" id="result">
+    <div class="result-card">
+      <h2>${T.resultTitle}</h2>
+      <div class="big-stars" id="bigStars"></div>
+      <p class="result-line"><span>${T.time}</span><b id="resTime"></b></p>
+      <p class="result-line"><span>${T.stars}</span><b id="resItems"></b></p>
+      <button class="btn main red" id="again">${ICONS.play}${T.again}</button>
+      <button class="btn main" id="resGarage">${ICONS.garage}${T.garage}</button>
+    </div>
   </section>`;
 
 const $ = (id) => document.getElementById(id);
@@ -48,6 +71,7 @@ const show = (id) => document.querySelectorAll('.screen').forEach((s) => s.class
 
 let slots = ['coal', 'passenger', null, null, null];
 let colorIdx = 0;
+const wagonList = () => slots.filter(Boolean);
 
 const stage = createStage($('stage'), {
   onArrive() {
@@ -56,6 +80,7 @@ const stage = createStage($('stage'), {
     horn();
   },
 });
+const raceView = createRaceView();
 
 function renderSound() {
   $('sound').innerHTML = isMuted() ? ICONS.soundOff : ICONS.sound;
@@ -71,10 +96,9 @@ function renderSlots() {
     b.setAttribute('aria-label', `${T.wagonSlot} ${i + 1}`);
     if (s) b.innerHTML = `<i style="background:${hex(WAGON_TYPES[s].color)}"></i>`;
     b.onclick = () => {
-      const next = WAGON_ORDER[(WAGON_ORDER.indexOf(s) + 1) % WAGON_ORDER.length];
-      slots[i] = next;
+      slots[i] = WAGON_ORDER[(WAGON_ORDER.indexOf(s) + 1) % WAGON_ORDER.length];
       renderSlots();
-      stage.setWagons(slots.filter(Boolean));
+      stage.setWagons(wagonList());
     };
     $('slots').appendChild(b);
   });
@@ -94,20 +118,92 @@ function renderSwatches() {
 
 function toGarage() {
   unlockAudio();
+  stage.setExternal(null);
+  racing = false;
   show('garage');
   stage.setMode('garage');
-  stage.setWagons(slots.filter(Boolean));
+  stage.setColor(COLORS[colorIdx]);
+  stage.setWagons(wagonList());
+  $('starCount').textContent = load().stars;
   renderSlots();
   renderSwatches();
 }
 
-$('play').onclick = toGarage; // M1: führt später direkt ins Rennen
+// ---------- Rennen ----------
+let game = null;
+let racing = false;
+let resultTimer = 0;
+
+const raceCtl = {
+  scene: raceView.scene,
+  camera: raceView.camera,
+  resize: (w, h) => raceView.resize(w, h),
+  update(dt) {
+    if (!game) return;
+    step(game, dt);
+    const events = game.events.splice(0);
+    for (const e of events) sfx(e.type);
+    raceView.sync(dt, events);
+    $('raceStars').textContent = game.collected;
+    $('raceTime').textContent = `${game.time.toFixed(1)} ${T.seconds}`;
+    $('progress').style.width = `${Math.min(100, (game.dist / game.track.finishZ) * 100)}%`;
+    if (game.stopped && !resultTimer) resultTimer = setTimeout(showResult, 900);
+  },
+};
+
+function startRace() {
+  unlockAudio();
+  clearTimeout(resultTimer);
+  resultTimer = 0;
+  game = createGame({ seed: (Math.random() * 1e9) | 0, wagons: wagonList().length });
+  raceView.start(game, { color: COLORS[colorIdx], wagonTypes: wagonList() });
+  racing = true;
+  $('raceStars').textContent = '0';
+  show('race');
+  stage.setExternal(raceCtl);
+}
+
+function showResult() {
+  resultTimer = 0;
+  racing = false;
+  const n = starsFor(game);
+  addStars(n);
+  $('bigStars').innerHTML = [1, 2, 3].map((i) => `<span class="${i <= n ? 'on' : ''}">${ICONS.star}</span>`).join('');
+  $('resTime').textContent = `${game.finishTime.toFixed(1)} ${T.seconds}`;
+  $('resItems').textContent = `${game.collected} / ${game.totalItems}`;
+  show('result');
+}
+
+attachSwipe($('stage'), {
+  onLeft: () => racing && moveLane(game, -1),
+  onRight: () => racing && moveLane(game, 1),
+  onUp: () => racing && jump(game),
+});
+
+// ---------- Verdrahtung ----------
+$('play').onclick = startRace;
 $('toGarage').onclick = toGarage;
 $('sound').onclick = () => { unlockAudio(); setMuted(!isMuted()); renderSound(); horn(); };
-$('back').onclick = () => { show('start'); stage.setMode('start'); $('title').classList.remove('show'); $('startBottom').classList.add('hidden'); };
+$('back').onclick = () => {
+  show('start');
+  stage.setMode('start');
+  $('title').classList.remove('show');
+  $('startBottom').classList.add('hidden');
+};
 $('hornBtn').onclick = () => { unlockAudio(); horn(); stage.honk(); };
-$('drive').onclick = () => { unlockAudio(); horn(); stage.honk(); };
-$('stage').addEventListener('pointerdown', () => { unlockAudio(); horn(); stage.honk(); });
+$('drive').onclick = startRace;
+$('raceHorn').onclick = () => { horn(); };
+$('raceBack').onclick = toGarage;
+$('again').onclick = startRace;
+$('resGarage').onclick = toGarage;
+$('stage').addEventListener('pointerdown', () => {
+  unlockAudio();
+  if (!racing && $('start').classList.contains('active')) { horn(); stage.honk(); }
+});
 
-void MAX_WAGONS;
+if (import.meta.env.DEV) {
+  // Nur für Browser-Tests im Dev-Modus
+  window.__btr = { get game() { return game; }, nearFinish() { game.dist = game.track.finishZ - 8; } };
+}
+
 show('start');

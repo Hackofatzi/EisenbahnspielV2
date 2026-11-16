@@ -1,0 +1,9 @@
+export const LANES = 4;
+export const BASE_SPEED = 10; // Spureinheiten pro Sekunde
+export const TRACK_SECONDS = 70; // Soll-Fahrzeit ohne Bremsen
+export const JUMP_DUR = 0.7;
+export const JUMP_HEIGHT = 1.2;
+export const HIT_SLOW_TIME = 0.9;
+export const HIT_SLOW_FACTOR = 0.45;
+export const WAGON_SLOWDOWN = 0.025; // pro Wagen
+export const MAX_WAGONS = 5;

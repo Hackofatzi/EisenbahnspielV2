@@ -59,6 +59,23 @@ html, body {
 .bottom.hidden { opacity: 0; pointer-events: none; transform: translateY(40px); }
 .bottom { transition: opacity .4s, transform .4s; }
 
+/* Rennen */
+.progress { height: 10px; margin-top: 10px; border-radius: 6px; background: #ffffff99; overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: var(--yellow); border-radius: 6px; }
+.race-spacer { flex: 1; pointer-events: none !important; }
+.horn-row { display: flex; justify-content: flex-end; }
+.btn.round.horn { width: 80px; height: 80px; min-height: 80px; background: var(--red); }
+#race .topbar .btn, #race .horn-row { pointer-events: auto; }
+
+/* Ergebnis */
+#result { justify-content: center; align-items: center; background: #2d303855; pointer-events: auto; }
+.result-card { background: var(--white); border-radius: 28px; padding: 24px 20px; width: min(340px, 100%); display: flex; flex-direction: column; align-items: center; gap: 12px; box-shadow: 0 6px 0 var(--dark); }
+.result-card h2 { margin: 0; font-size: 36px; font-weight: 700; }
+.big-stars { display: flex; gap: 8px; }
+.big-stars span svg { width: 76px; height: 76px; color: #d9dde3; stroke: var(--dark); stroke-width: 3; }
+.big-stars span.on svg { color: var(--yellow); }
+.result-line { display: flex; justify-content: space-between; width: 100%; margin: 0; font-size: 22px; }
+
 /* Garage */
 .panel { background: #ffffffd9; border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .panel h2 { margin: 0; font-size: 18px; font-weight: 600; }

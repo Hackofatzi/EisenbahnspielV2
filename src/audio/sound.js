@@ -22,6 +22,34 @@ export function loadMuted() {
   return muted;
 }
 
+/** Kurze Effekt-Klänge aus Oszillatoren (eigene Klänge, keine Fremdquellen). */
+export function sfx(name) {
+  if (!ctx || muted) return;
+  const now = ctx.currentTime;
+  const tone = (type, f0, f1, dur, vol, delay = 0) => {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, now + delay);
+    o.frequency.exponentialRampToValueAtTime(f1, now + delay + dur);
+    g.gain.setValueAtTime(vol, now + delay);
+    g.gain.exponentialRampToValueAtTime(0.001, now + delay + dur);
+    o.connect(g).connect(ctx.destination);
+    o.start(now + delay);
+    o.stop(now + delay + dur + 0.02);
+  };
+  switch (name) {
+    case 'collect': tone('sine', 660, 1320, 0.14, 0.2); break;
+    case 'lane': tone('triangle', 300, 220, 0.07, 0.12); break;
+    case 'jump': tone('sine', 220, 520, 0.18, 0.15); break;
+    case 'hit': tone('square', 140, 60, 0.25, 0.18); break;
+    case 'finish':
+      [523, 659, 784, 1046].forEach((f, i) => tone('triangle', f, f, 0.25, 0.2, i * 0.14));
+      break;
+    default: break;
+  }
+}
+
 /** Zweiklang-Tuten, neuer Druck startet neu, Sperre 0,3 s. */
 export function horn(pitch = 1) {
   if (!ctx || muted) return;

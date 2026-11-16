@@ -13,4 +13,8 @@ export const T = {
   wagonSlot: 'Wagen',
   colorLabel: 'Farbe',
   tapToStart: 'Tippe zum Starten',
+  resultTitle: 'Geschafft!',
+  time: 'Zeit',
+  again: 'Nochmal',
+  seconds: 's',
 };

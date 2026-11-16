@@ -108,8 +108,20 @@ export function createStage(canvas, { onArrive } = {}) {
     }
   }
 
+  /** Externe Szene (Rennen) übernimmt das Rendern: { scene, camera, update(dt), resize(w,h) } oder null. */
+  let external = null;
+  function setExternal(x) { external = x; if (x) x.resize?.(canvas.clientWidth, canvas.clientHeight); }
+
+  function fitGarage() {
+    const n = wagons.length;
+    const k = 1 + Math.max(0, n - 2) * 0.17;
+    const look = new THREE.Vector3(0, -1.1, -1.5);
+    camGoal.look.copy(look);
+    camGoal.pos.set(4.2 * k, 3.6 + (k - 1) * 3, 11.5 * k);
+  }
+
   function setColor(c) { color = c; rebuild(); if (mode === 'garage') train.position.set(1.0, 0, 2.2); }
-  function setWagons(w) { wagons = w; rebuild(); train.position.set(1.0, 0, 2.2); }
+  function setWagons(w) { wagons = w; rebuild(); train.position.set(1.0, 0, 2.2); if (mode === 'garage') fitGarage(); }
   function honk() { hornShake = 0.4; }
 
   function resize() {
@@ -118,6 +130,7 @@ export function createStage(canvas, { onArrive } = {}) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    external?.resize?.(w, h);
   }
   addEventListener('resize', resize);
   resize();
@@ -131,6 +144,12 @@ export function createStage(canvas, { onArrive } = {}) {
     const dt = Math.min(0.05, now - last);
     last = now;
     const t = now - t0;
+
+    if (external) {
+      external.update(dt);
+      renderer.render(external.scene, external.camera);
+      return;
+    }
 
     if (mode === 'start') {
       const k = easeOut(t / 3.4);
@@ -176,5 +195,5 @@ export function createStage(canvas, { onArrive } = {}) {
     renderer.render(scene, camera);
   });
 
-  return { setMode, setColor, setWagons, honk, resize };
+  return { setMode, setColor, setWagons, honk, resize, setExternal };
 }

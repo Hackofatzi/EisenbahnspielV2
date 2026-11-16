@@ -8,7 +8,7 @@ Status hier pflegen: offen / erledigt.
 - M0b (erledigt, wartet auf Korrekturliste): Design. DESIGN.md umsetzen: Schrift, Farben, 5 Kern-Icons
   (Play, Garage, Stern, Tuten, Sound) als SVG, Splash-Animation,
   Beispiel-Screens Start und Garage. Danach Korrekturliste von mir.
-- M1 (offen): Solo-Fahrt. 4 Spuren, Wisch, Hüpfen, Tuten (Oszillator),
+- M1 (erledigt, Test auf echtem Handy steht aus): Solo-Fahrt. 4 Spuren, Wisch, Hüpfen, Tuten (Oszillator),
   Sammelobjekte, Hindernisse, Zieleinlauf. Danach Test auf echtem Handy.
 - M2 (offen): Gegner. 3 KI-Züge, Platzierung, Ergebnis-Screen.
 - M3 (offen): Kurven und Weichen. Segmentgenerator, optische Kurven.
